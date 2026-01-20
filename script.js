@@ -1,5 +1,5 @@
 // --- CONFIGURACIÓN ---
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzm4PKtttlamu3mCWi6HRDkflThXS8Dx9UNMx3TIXc3q3MI_aDETFCthtyg6gGpoPnE9Q/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4fbq5XjHnqc_Cmw3kQ-JXrOT9QifRMO3zjZQA6GNDCCkR66Wa6OKBkSy_azXMd_Dc7w/exec";
 const WHATSAPP_NUMBER = "5491153196358"; 
 
 // --- VARIABLES GLOBALES ---
@@ -242,9 +242,78 @@ function setupEventListeners() {
 
     document.getElementById('form-upload-docs')?.addEventListener('submit', (e) => {
         e.preventDefault();
-        const file = document.getElementById('doc-file').files[0]; 
-        const reader = new FileReader(); reader.readAsDataURL(file);
-        reader.onload = function() { fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'uploadDocument', categoria: document.getElementById('doc-cat').value, numero: document.getElementById('doc-num').value, titulo: document.getElementById('doc-title').value, resumen: document.getElementById('doc-desc').value, fileName: file.name, mimeType: file.type, fileData: reader.result.split(',')[1] }) }).then(r => r.json()).then(json => { document.getElementById('upload-msg').innerText = json.message; }); };
+
+        const msg = document.getElementById('upload-msg');
+        const fileInput = document.getElementById('doc-file');
+        const file = fileInput?.files?.[0];
+
+        // Mostrar feedback siempre
+        if (msg) {
+            msg.classList.remove('hidden');
+            msg.style.color = "var(--primary)";
+            msg.innerText = "";
+        }
+
+        if (!file) {
+            if (msg) { msg.style.color = "red"; msg.innerText = "Seleccioná un PDF antes de subir."; }
+            return;
+        }
+
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        const originalText = submitBtn ? submitBtn.innerText : "";
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Subiendo..."; }
+
+        if (msg) msg.innerText = "Leyendo archivo...";
+
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+
+        reader.onload = function () {
+            const base64 = String(reader.result || "").split(',')[1];
+            if (!base64) {
+                if (msg) { msg.style.color = "red"; msg.innerText = "No se pudo leer el archivo."; }
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = originalText; }
+                return;
+            }
+
+            if (msg) msg.innerText = "Subiendo a Drive...";
+
+            fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: 'uploadDocument',
+                    categoria: document.getElementById('doc-cat').value,
+                    numero: document.getElementById('doc-num').value,
+                    titulo: document.getElementById('doc-title').value,
+                    resumen: document.getElementById('doc-desc').value,
+                    fileName: file.name,
+                    mimeType: file.type || "application/pdf",
+                    fileData: base64
+                })
+            })
+                .then(r => r.json())
+                .then(json => {
+                    if (json.result === "success") {
+                        if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Documento subido correctamente."; }
+                        e.target.reset();
+                    } else {
+                        if (msg) { msg.style.color = "red"; msg.innerText = json.message || "Error al subir el documento."; }
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    if (msg) { msg.style.color = "red"; msg.innerText = "Error de conexión al subir el documento."; }
+                })
+                .finally(() => {
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = originalText; }
+                });
+        };
+
+        reader.onerror = function () {
+            if (msg) { msg.style.color = "red"; msg.innerText = "No se pudo leer el archivo (FileReader)."; }
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = originalText; }
+        };
     });
 
     document.getElementById('form-profile')?.addEventListener('submit', (e) => {
