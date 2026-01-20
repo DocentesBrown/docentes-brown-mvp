@@ -1,5 +1,5 @@
 // --- CONFIGURACIÓN ---
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzm4PKtttlamu3mCWi6HRDkflThXS8Dx9UNMx3TIXc3q3MI_aDETFCthtyg6gGpoPnE9Q/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4fbq5XjHnqc_Cmw3kQ-JXrOT9QifRMO3zjZQA6GNDCCkR66Wa6OKBkSy_azXMd_Dc7w/exec";
 const WHATSAPP_NUMBER = "5491153196358"; 
 
 // --- VARIABLES GLOBALES ---
@@ -9,6 +9,10 @@ let currentEditingTallerId = null;
 let currentTallerInvitedIds = []; 
 let selectedTallerIdForLink = null;
 let userFavorites = []; 
+let adminTalleresCache = []; // cache para edición rápida
+
+// Cache docs para selección de materiales
+let docsLoadedOnce = false;
 
 // --- INICIO SEGURO ---
 // Esperamos a que todo el HTML esté cargado antes de asignar funciones
@@ -48,8 +52,10 @@ function setupEventListeners() {
         document.getElementById('form-create-taller').reset();
         document.getElementById('taller-msg').innerText = "";
         document.getElementById('count-selected').innerText = "0";
+        document.getElementById('count-selected-docs').innerText = "0";
         currentTallerInvitedIds = []; 
         loadDocentesForSelection('docentes-checklist');
+        loadDocsForSelection('docs-checklist');
     });
 
     // ADMIN: Submit Crear Taller
@@ -59,6 +65,9 @@ function setupEventListeners() {
         const checked = document.querySelectorAll('#docentes-checklist input:checked');
         const selectedIds = Array.from(checked).map(cb => cb.value);
 
+        const checkedDocs = document.querySelectorAll('#docs-checklist input:checked');
+        const selectedDocIds = Array.from(checkedDocs).map(cb => cb.value);
+
         msg.innerText = "Creando..."; msg.classList.remove('hidden');
         
         fetch(APPS_SCRIPT_URL, { 
@@ -67,7 +76,8 @@ function setupEventListeners() {
                 action: 'createTaller',
                 titulo: document.getElementById('taller-titulo').value,
                 fechaTaller: document.getElementById('taller-fecha').value,
-                invitados: selectedIds 
+                invitados: selectedIds,
+                materialIds: selectedDocIds
             })
         })
         .then(r => r.json())
@@ -80,6 +90,46 @@ function setupEventListeners() {
                     loadAdminTalleresList(); 
                 }, 1000);
             } else { msg.innerText = json.message; }
+        });
+    });
+
+    // ADMIN: Confirmar Editar Material de Estudio
+    document.getElementById('btn-confirm-edit-materials')?.addEventListener('click', () => {
+        const msg = document.getElementById('edit-materials-msg');
+        const checked = document.querySelectorAll('#edit-materials-checklist input:checked');
+        const selectedDocIds = Array.from(checked).map(cb => cb.value);
+
+        msg.innerText = "Guardando material...";
+        msg.style.color = "var(--primary)";
+        msg.classList.remove('hidden');
+
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'saveTallerMaterials',
+                tallerId: currentEditingTallerId,
+                materialIds: selectedDocIds
+            })
+        })
+        .then(r => r.json())
+        .then(json => {
+            if(json.result === 'success') {
+                msg.innerText = "Material actualizado.";
+                msg.style.color = "green";
+                setTimeout(() => {
+                    document.getElementById('modal-edit-materials').classList.add('hidden');
+                    document.getElementById('modal-admin-list-talleres').classList.remove('hidden');
+                    loadAdminTalleresList();
+                }, 900);
+            } else {
+                msg.innerText = "Error: " + json.message;
+                msg.style.color = "red";
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            msg.innerText = "Error de conexión.";
+            msg.style.color = "red";
         });
     });
 
@@ -139,6 +189,8 @@ function setupEventListeners() {
     document.getElementById('filter-cat')?.addEventListener('change', applyFilters);
     document.getElementById('search-docente-input')?.addEventListener('keyup', (e) => filterChecklist(e.target.value, 'docentes-checklist'));
     document.getElementById('search-add-input')?.addEventListener('keyup', (e) => filterChecklist(e.target.value, 'add-docentes-checklist'));
+    document.getElementById('search-docs-input')?.addEventListener('keyup', (e) => filterDocsChecklist(e.target.value, 'docs-checklist'));
+    document.getElementById('search-edit-material-input')?.addEventListener('keyup', (e) => filterDocsChecklist(e.target.value, 'edit-materials-checklist'));
 
     // LINK MEET
     document.getElementById('btn-save-link')?.addEventListener('click', () => {
@@ -242,45 +294,29 @@ function setupEventListeners() {
 
     document.getElementById('form-upload-docs')?.addEventListener('submit', (e) => {
         e.preventDefault();
-
         const msg = document.getElementById('upload-msg');
-        const fileInput = document.getElementById('doc-file');
-        const file = fileInput?.files?.[0];
-
-        // Mostrar caja de mensaje (por defecto viene con class hidden)
-        if (msg) {
-            msg.classList.remove('hidden');
-            msg.style.color = "var(--primary)";
-            msg.innerText = "";
-        }
-
-        if (!file) {
-            if (msg) { msg.style.color = "red"; msg.innerText = "Seleccioná un archivo antes de subir."; }
+        const file = document.getElementById('doc-file').files[0];
+        if(!file) {
+            if(msg) {
+                msg.innerText = "Seleccioná un PDF.";
+                msg.style.color = "red";
+                msg.classList.remove('hidden');
+            }
             return;
         }
 
-        const btn = e.target.querySelector('button[type="submit"]');
-        const originalText = btn ? btn.innerText : "";
-        if (btn) { btn.disabled = true; btn.innerText = "Subiendo..."; }
-
-        if (msg) msg.innerText = "Leyendo archivo...";
+        if(msg) {
+            msg.innerText = "Leyendo archivo...";
+            msg.style.color = "var(--primary)";
+            msg.classList.remove('hidden');
+        }
 
         const reader = new FileReader();
         reader.readAsDataURL(file);
-
-        reader.onload = function () {
-            const base64 = String(reader.result || "").split(',')[1];
-            if (!base64) {
-                if (msg) { msg.style.color = "red"; msg.innerText = "No se pudo leer el archivo."; }
-                if (btn) { btn.disabled = false; btn.innerText = originalText; }
-                return;
-            }
-
-            if (msg) msg.innerText = "Subiendo a Drive...";
-
+        reader.onload = function() {
+            if(msg) msg.innerText = "Subiendo a Drive...";
             fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
-                // ✅ NO headers para evitar preflight/CORS con Apps Script
                 body: JSON.stringify({
                     action: 'uploadDocument',
                     categoria: document.getElementById('doc-cat').value,
@@ -288,36 +324,33 @@ function setupEventListeners() {
                     titulo: document.getElementById('doc-title').value,
                     resumen: document.getElementById('doc-desc').value,
                     fileName: file.name,
-                    mimeType: file.type || "application/pdf",
-                    fileData: base64
+                    mimeType: file.type,
+                    fileData: String(reader.result).split(',')[1]
                 })
             })
             .then(r => r.json())
             .then(json => {
-                if (json.result === "success") {
-                    if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Documento subido correctamente."; }
-                    // reset
-                    e.target.reset();
-                } else {
-                    if (msg) { msg.style.color = "red"; msg.innerText = json.message || "Error al subir el documento."; }
+                if(!msg) return;
+                msg.innerText = json.message || "Proceso finalizado.";
+                msg.style.color = (json.result === 'success') ? "green" : "red";
+                msg.classList.remove('hidden');
+                // Refrescamos cache de docs para selección de materiales
+                if(json.result === 'success') {
+                    docsLoadedOnce = false;
                 }
             })
             .catch(err => {
                 console.error(err);
-                if (msg) { msg.style.color = "red"; msg.innerText = "Error de conexión al subir el documento."; }
-            })
-            .finally(() => {
-                if (btn) { btn.disabled = false; btn.innerText = originalText; }
+                if(msg) {
+                    msg.innerText = "Error de conexión.";
+                    msg.style.color = "red";
+                    msg.classList.remove('hidden');
+                }
             });
-        };
-
-        reader.onerror = function () {
-            if (msg) { msg.style.color = "red"; msg.innerText = "No se pudo leer el archivo (FileReader)."; }
-            if (btn) { btn.disabled = false; btn.innerText = originalText; }
         };
     });
 
-document.getElementById('form-profile')?.addEventListener('submit', (e) => {
+    document.getElementById('form-profile')?.addEventListener('submit', (e) => {
         e.preventDefault(); const user = JSON.parse(sessionStorage.getItem('db_user'));
         fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateProfile', userId: user.id, dni: document.getElementById('prof-dni').value, telefono: document.getElementById('prof-tel').value, institucion: document.getElementById('prof-inst').value }) }).then(r => r.json()).then(json => { document.getElementById('profile-msg').innerText = json.message; });
     });
@@ -381,20 +414,25 @@ function loadAdminTalleresList() {
     fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'getAllTalleres' }) })
     .then(r => r.json())
     .then(json => {
+        adminTalleresCache = Array.isArray(json.data) ? json.data : [];
         if(json.data.length === 0) { container.innerHTML = '<p>No hay talleres creados.</p>'; return; }
         let html = '<ul class="taller-list">';
         json.data.forEach(t => {
+            const safeTitle = String(t.titulo || '').replace(/'/g, "&#39;");
+            const materialsCount = Array.isArray(t.materiales) ? t.materiales.length : 0;
             html += `
             <li class="taller-item">
                 <div class="taller-info">
                     <strong>${t.titulo}</strong> <small>(${t.fechaTaller})</small><br>
                     <span style="font-size:0.85rem; color:#666;">Invitados: ${t.invitados ? t.invitados.length : 0}</span>
+                    <span style="font-size:0.85rem; color:#666; margin-left:10px;">📚 Material: ${materialsCount}</span>
                     <div style="margin-top:5px;">
                        ${t.link ? `<a href="${t.link}" target="_blank" class="link-tag">Enlace Meet Activo</a>` : '<span class="no-link">Sin enlace</span>'}
                     </div>
                 </div>
                 <div class="taller-actions">
-                     <button class="btn-sm" onclick="openAddParticipants(${t.id}, '${t.titulo}')">👥 Asistentes</button>
+                     <button class="btn-sm" onclick="openAddParticipants(${t.id}, '${safeTitle}')">👥 Asistentes</button>
+                     <button class="btn-sm" onclick="openEditMaterials(${t.id}, '${safeTitle}')">📚 Material</button>
                      <button class="btn-sm btn-secondary" onclick="openAddLink(${t.id})">🔗 Link</button>
                 </div>
             </li>`;
@@ -415,6 +453,87 @@ function loadDocentesForSelection(containerId) {
         allDocentesCache = json.data;
         renderChecklist(allDocentesCache, containerId);
     });
+}
+
+// --- DOCUMENTACIÓN: Cargar para seleccionar Material de Estudio ---
+function ensureDocsLoaded(force = false) {
+    if(docsLoadedOnce && !force && Array.isArray(globalDocs) && globalDocs.length > 0) {
+        return Promise.resolve(globalDocs);
+    }
+
+    return fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'getDocuments' }) })
+        .then(r => r.json())
+        .then(json => {
+            docsLoadedOnce = true;
+            globalDocs = Array.isArray(json.data) ? json.data.map(d => ({ ...d, isNew: false })) : [];
+            return globalDocs;
+        });
+}
+
+function loadDocsForSelection(containerId, preselectedIds = []) {
+    const container = document.getElementById(containerId);
+    if(!container) return;
+    container.innerHTML = '<p>Cargando documentación...</p>';
+
+    ensureDocsLoaded()
+        .then(docs => {
+            renderDocsChecklist(docs, containerId, preselectedIds);
+        })
+        .catch(err => {
+            console.error(err);
+            container.innerHTML = '<p style="color:red;">No se pudo cargar la documentación.</p>';
+        });
+}
+
+function renderDocsChecklist(docs, containerId, preselectedIds = []) {
+    const container = document.getElementById(containerId);
+    if(!container) return;
+    if(!Array.isArray(docs) || docs.length === 0) {
+        container.innerHTML = '<p>No hay documentos cargados.</p>';
+        return;
+    }
+
+    const selectedSet = new Set((preselectedIds || []).map(String));
+    let html = '';
+    docs.forEach(doc => {
+        const id = String(doc.id);
+        const title = doc.titulo || 'Sin título';
+        const cat = doc.categoria || 'Sin categoría';
+        const num = doc.numero || 'S/N';
+        const isChecked = selectedSet.has(id) ? 'checked' : '';
+        html += `<label class="checklist-item"><input type="checkbox" value="${id}" ${isChecked}> <strong>${escapeHtml_(title)}</strong> <small>(${cat} · ${num})</small></label>`;
+    });
+    container.innerHTML = html;
+
+    // Contadores
+    const countSpanCreate = document.getElementById('count-selected-docs');
+    const countSpanEdit = null;
+    const updateCount = () => {
+        const cnt = container.querySelectorAll('input:checked').length;
+        if(containerId === 'docs-checklist' && countSpanCreate) countSpanCreate.innerText = String(cnt);
+    };
+    updateCount();
+    container.querySelectorAll('input').forEach(cb => cb.addEventListener('change', updateCount));
+}
+
+function filterDocsChecklist(text, containerId) {
+    const container = document.getElementById(containerId);
+    if(!container) return;
+    const labels = container.querySelectorAll('.checklist-item');
+    const term = String(text || '').toLowerCase();
+    labels.forEach(lbl => {
+        const txt = lbl.innerText.toLowerCase();
+        lbl.style.display = txt.includes(term) ? 'flex' : 'none';
+    });
+}
+
+function escapeHtml_(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function renderChecklist(list, containerId, preselectedIds = []) {
@@ -462,6 +581,23 @@ function openAddParticipants(id, titulo) {
     });
 }
 
+function openEditMaterials(tallerId, titulo) {
+    currentEditingTallerId = tallerId;
+    document.getElementById('modal-admin-list-talleres').classList.add('hidden');
+    document.getElementById('modal-edit-materials').classList.remove('hidden');
+    const subtitle = document.getElementById('edit-materials-subtitle');
+    if(subtitle) subtitle.innerText = "Taller: " + titulo;
+    const msg = document.getElementById('edit-materials-msg');
+    if(msg) { msg.innerText = ""; msg.classList.add('hidden'); }
+
+    // Preseleccionados desde cache
+    const t = (adminTalleresCache || []).find(x => String(x.id) === String(tallerId));
+    const preselected = t && Array.isArray(t.materiales) ? t.materiales.map(String) : [];
+
+    // Render
+    loadDocsForSelection('edit-materials-checklist', preselected);
+}
+
 function openAddLink(id) {
     selectedTallerIdForLink = id;
     document.getElementById('modal-admin-list-talleres').classList.add('hidden');
@@ -499,6 +635,7 @@ function checkNewDocuments() {
         const now = new Date();
         let hasNew = false;
         
+        docsLoadedOnce = true;
         globalDocs = json.data.map(d => {
             const docDate = parseDate(d.fecha);
             // Consideramos nuevo si es posterior a la ultima visita (o ultimos 7 dias si es la primera vez)
@@ -534,25 +671,75 @@ function loadMyTalleres(userId) {
         }
         let html = '';
         json.data.forEach(t => {
+            const safeTitle = String(t.titulo || '').replace(/'/g, "&#39;");
+            const safeLink = String(t.link || '').replace(/'/g, "&#39;");
+            const materialsCount = Array.isArray(t.materiales) ? t.materiales.length : 0;
+            const materialsAttr = encodeURIComponent(JSON.stringify(Array.isArray(t.materiales) ? t.materiales : []));
             html += `
-            <div class="card card-taller" onclick="showTallerInfo('${t.titulo}', '${t.link}')">
+            <div class="card card-taller" onclick="showTallerInfo('${safeTitle}', '${safeLink}', '${materialsAttr}')">
                 <h3>${t.titulo}</h3>
                 <p>📅 ${t.fechaTaller}</p>
-                ${t.link ? '<span class="badge-link">Enlace Disponible</span>' : ''}
+                <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
+                    ${t.link ? '<span class="badge-link">Enlace Disponible</span>' : ''}
+                    ${materialsCount > 0 ? `<span class="badge" style="background: var(--cream); color: var(--primary);">📚 Material: ${materialsCount}</span>` : ''}
+                </div>
             </div>`;
         });
         container.innerHTML = html;
     });
 }
 
-function showTallerInfo(titulo, link) {
+function showTallerInfo(titulo, link, materialsEncoded) {
     document.getElementById('modal-taller-info').classList.remove('hidden');
     document.getElementById('info-taller-titulo').innerText = titulo;
     const actionContainer = document.getElementById('taller-action-container');
+    const materialsContainer = document.getElementById('taller-materials-container');
+    if(materialsContainer) materialsContainer.innerHTML = "";
     if(link) {
         actionContainer.innerHTML = `<a href="${link}" target="_blank" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
     } else {
         actionContainer.innerHTML = `<p style="color:#777; font-style:italic;">El enlace de la reunión aún no está disponible.</p>`;
+    }
+
+    // Materiales
+    let materialIds = [];
+    try {
+        if(materialsEncoded) materialIds = JSON.parse(decodeURIComponent(materialsEncoded));
+    } catch(e) { materialIds = []; }
+
+    if(materialIds && materialIds.length > 0) {
+        ensureDocsLoaded().then(docs => {
+            const map = new Map(docs.map(d => [String(d.id), d]));
+            const listItems = materialIds
+                .map(id => map.get(String(id)))
+                .filter(Boolean);
+
+            if(listItems.length === 0) {
+                if(materialsContainer) {
+                    materialsContainer.innerHTML = `<div class="materials-box"><h4>📚 Material de Estudio</h4><p style="margin:0; color:#666;">No se encontraron documentos asociados.</p></div>`;
+                }
+                return;
+            }
+
+            let html = `<div class="materials-box"><h4>📚 Material de Estudio</h4><ul class="materials-list">`;
+            listItems.forEach(d => {
+                const meta = `${d.categoria || 'Sin categoría'} · ${(d.numero || 'S/N')}`;
+                html += `
+                <li class="material-item">
+                    <div class="material-meta">
+                        <strong>${escapeHtml_(d.titulo || 'Documento')}</strong>
+                        <small>${escapeHtml_(meta)}</small>
+                    </div>
+                    <a class="btn-mini" href="${d.url}" target="_blank" rel="noopener">Abrir PDF</a>
+                </li>`;
+            });
+            html += `</ul></div>`;
+            if(materialsContainer) materialsContainer.innerHTML = html;
+        });
+    } else {
+        if(materialsContainer) {
+            materialsContainer.innerHTML = `<div class="materials-box"><h4>📚 Material de Estudio</h4><p style="margin:0; color:#666;">Aún no hay material cargado para este taller.</p></div>`;
+        }
     }
 }
 
