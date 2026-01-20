@@ -4,7 +4,7 @@
 
 var WEB_APP_URL = "https://docentesbrown.github.io/docentes-brown-mvp";
 
-// ✅ Carpeta Drive para documentación (ID extraído del link que pasaste)
+// Carpeta Drive para documentación (ID extraído del link)
 var DRIVE_FOLDER_ID = "16Fc9rda7E8ZaGTBjs9wuBNZZT5ugSM8t";
 
 // ==========================================
@@ -94,11 +94,8 @@ function sendActivationEmail(nombre, email, password) {
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(30000);
-  } catch (err) {
-    return response({ "result": "error", "message": "Servidor ocupado." });
-  }
+  try { lock.waitLock(30000); } 
+  catch (err) { return response({ "result": "error", "message": "Servidor ocupado." }); }
 
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -122,10 +119,19 @@ function doPost(e) {
     if (action === 'updateTallerLink') return updateTallerLink(ss, request);
     if (action === 'getAllDocentesSimple') return getAllDocentesSimple(ss);
     if (action === 'saveTallerParticipants') return saveTallerParticipants(ss, request);
-    if (action === 'saveTallerMaterials') return saveTallerMaterials(ss, request);
 
     // TALLERES DOCENTE
     if (action === 'getMyTalleres') return getDocenteTalleres(ss, request.userId);
+
+    // APLICACIONES
+    if (action === 'createApp') return createApp(ss, request);
+    if (action === 'getApps') return getApps(ss);
+
+    // ESTUDIANTES (PUBLICACIONES / TUTORIALES)
+    if (action === 'createStudentPublication') return createStudentPublication(ss, request);
+    if (action === 'getStudentPublications') return getStudentPublications(ss);
+    if (action === 'createStudentTutorial') return createStudentTutorial(ss, request);
+    if (action === 'getStudentTutorials') return getStudentTutorials(ss);
 
     return response({ "result": "error", "message": "Acción desconocida" });
 
@@ -140,61 +146,23 @@ function doPost(e) {
 // 3. TALLERES
 // ==========================================
 
-function ensureTalleresSchema_(sheet) {
-  // Esperado: ID_Taller | Fecha_Creacion | Titulo | Fecha_Taller | Invitados_IDs | Enlace_Meet | Material_IDs
-  var expectedHeaders = ['ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller', 'Invitados_IDs', 'Enlace_Meet', 'Material_IDs'];
-  var lastCol = sheet.getLastColumn();
-
-  // Si no hay headers, los crea
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(expectedHeaders);
-    sheet.getRange(1, 1, 1, expectedHeaders.length).setFontWeight('bold');
-    return;
-  }
-
-  var headers = sheet.getRange(1, 1, 1, Math.max(lastCol, expectedHeaders.length)).getValues()[0];
-
-  // Agregar columnas faltantes al final si la hoja es vieja (6 cols)
-  for (var i = 0; i < expectedHeaders.length; i++) {
-    if (!headers[i]) {
-      sheet.getRange(1, i + 1).setValue(expectedHeaders[i]).setFontWeight('bold');
-    }
-  }
-
-  if (lastCol < expectedHeaders.length) {
-    // set header for missing col(s)
-    sheet.getRange(1, lastCol + 1, 1, expectedHeaders.length - lastCol).setValues([expectedHeaders.slice(lastCol)]);
-    sheet.getRange(1, lastCol + 1, 1, expectedHeaders.length - lastCol).setFontWeight('bold');
-  }
-}
-
 function getAllDocentesSimple(ss) {
   var sheet = ss.getSheetByName('Docentes');
   if (!sheet) return response({ "result": "error", "data": [] });
 
   var data = sheet.getDataRange().getValues();
   var docentes = [];
-
   for (var i = 1; i < data.length; i++) {
-    docentes.push({
-      id: data[i][0],
-      nombre: data[i][1],
-      dni: data[i][5] || "S/D"
-    });
+    docentes.push({ id: data[i][0], nombre: data[i][1], dni: data[i][5] || "S/D" });
   }
-
-  docentes.sort(function (a, b) {
-    return String(a.nombre).localeCompare(String(b.nombre));
-  });
-
+  docentes.sort(function(a, b) { return String(a.nombre).localeCompare(String(b.nombre)); });
   return response({ "result": "success", "data": docentes });
 }
 
+// Sobrescribe la lista de participantes (permite borrar y agregar)
 function saveTallerParticipants(ss, data) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "error", "message": "Hoja Talleres no existe" });
-
-  ensureTalleresSchema_(sheet);
 
   var rows = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -207,32 +175,12 @@ function saveTallerParticipants(ss, data) {
   return response({ "result": "error", "message": "Taller no encontrado" });
 }
 
-function saveTallerMaterials(ss, data) {
-  var sheet = ss.getSheetByName('Talleres');
-  if (!sheet) return response({ "result": "error", "message": "Hoja Talleres no existe" });
-
-  ensureTalleresSchema_(sheet);
-
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] == data.tallerId) {
-      var newJson = JSON.stringify(data.materialIds || []);
-      // Columna 7 => Material_IDs
-      sheet.getRange(i + 1, 7).setValue(newJson);
-      return response({ "result": "success", "message": "Material de estudio actualizado." });
-    }
-  }
-  return response({ "result": "error", "message": "Taller no encontrado" });
-}
-
 function createTaller(ss, data) {
-  var sheet = getOrCreateSheet(ss, 'Talleres', ['ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller', 'Invitados_IDs', 'Enlace_Meet', 'Material_IDs']);
-  ensureTalleresSchema_(sheet);
+  var sheet = getOrCreateSheet(ss, 'Talleres', ['ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller', 'Invitados_IDs', 'Enlace_Meet']);
   var newId = getLastId(sheet) + 1;
   var fechaHoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
   var invitadosString = JSON.stringify(data.invitados || []);
-  var materialString = JSON.stringify(data.materialIds || []);
-  sheet.appendRow([newId, fechaHoy, data.titulo, data.fechaTaller, invitadosString, "", materialString]);
+  sheet.appendRow([newId, fechaHoy, data.titulo, data.fechaTaller, invitadosString, ""]);
   return response({ "result": "success", "message": "Taller creado correctamente" });
 }
 
@@ -240,28 +188,19 @@ function getAllTalleres(ss) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "success", "data": [] });
 
-  ensureTalleresSchema_(sheet);
-
   var rows = sheet.getDataRange().getValues();
   var talleres = [];
-
   for (var i = 1; i < rows.length; i++) {
     var invitados = [];
-    try { invitados = JSON.parse(rows[i][4]); } catch (e) { }
-
-    var materiales = [];
-    try { materiales = JSON.parse(rows[i][6] || '[]'); } catch (e2) { materiales = []; }
-
+    try { invitados = JSON.parse(rows[i][4]); } catch(e){}
     talleres.push({
       id: rows[i][0],
       titulo: rows[i][2],
       fechaTaller: cleanDate(rows[i][3]),
       invitados: invitados,
-      link: rows[i][5] || "",
-      materiales: materiales
+      link: rows[i][5] || ""
     });
   }
-
   return response({ "result": "success", "data": talleres });
 }
 
@@ -269,38 +208,29 @@ function getDocenteTalleres(ss, userId) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "success", "data": [] });
 
-  ensureTalleresSchema_(sheet);
-
   var rows = sheet.getDataRange().getValues();
   var misTalleres = [];
-
   for (var i = 1; i < rows.length; i++) {
     var invitadosRaw = rows[i][4];
     try {
       var listaInvitados = JSON.parse(invitadosRaw);
-      var estaInvitado = listaInvitados.some(function (id) { return String(id) === String(userId); });
+      var estaInvitado = listaInvitados.some(function(id) { return String(id) === String(userId); });
       if (estaInvitado) {
-        var materiales = [];
-        try { materiales = JSON.parse(rows[i][6] || '[]'); } catch (e2) { materiales = []; }
         misTalleres.push({
           id: rows[i][0],
           titulo: rows[i][2],
           fechaTaller: cleanDate(rows[i][3]),
-          link: rows[i][5] || "",
-          materiales: materiales
+          link: rows[i][5] || ""
         });
       }
-    } catch (e) { }
+    } catch (e) {}
   }
-
   return response({ "result": "success", "data": misTalleres });
 }
 
 function updateTallerLink(ss, data) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "error", "message": "Hoja Talleres no existe" });
-
-  ensureTalleresSchema_(sheet);
 
   var rows = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -321,26 +251,23 @@ function toggleFavorite(ss, data) {
   if (!sheet) return response({ "result": "error", "message": "Hoja Docentes no existe" });
 
   var rows = sheet.getDataRange().getValues();
-
   if (sheet.getLastColumn() < 9) sheet.getRange(1, 9).setValue("Favoritos_IDs");
 
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] == data.userId) {
       var currentFavs = [];
-      try { currentFavs = JSON.parse(rows[i][8]); } catch (e) { }
+      try { currentFavs = JSON.parse(rows[i][8]); } catch(e){}
       if (!Array.isArray(currentFavs)) currentFavs = [];
 
       var docId = String(data.docId);
-      var index = currentFavs.indexOf(docId);
-
-      if (index > -1) currentFavs.splice(index, 1);
+      var idx = currentFavs.indexOf(docId);
+      if (idx > -1) currentFavs.splice(idx, 1);
       else currentFavs.push(docId);
 
       sheet.getRange(i + 1, 9).setValue(JSON.stringify(currentFavs));
       return response({ "result": "success", "favoritos": currentFavs });
     }
   }
-
   return response({ "result": "error", "message": "Usuario no encontrado" });
 }
 
@@ -350,7 +277,6 @@ function getDocumentsList(ss) {
 
   var rows = sheet.getDataRange().getValues();
   var docs = [];
-
   for (var i = 1; i < rows.length; i++) {
     docs.push({
       id: rows[i][0],
@@ -362,16 +288,98 @@ function getDocumentsList(ss) {
       url: rows[i][6]
     });
   }
-
-  docs.sort(function (a, b) {
-    return String(a.titulo).localeCompare(String(b.titulo));
-  });
-
+  docs.sort(function(a, b) { return String(a.titulo).localeCompare(String(b.titulo)); });
   return response({ "result": "success", "data": docs });
 }
 
 // ==========================================
-// 5. BASE (PERFIL + AUTH + REGISTRO + DRIVE)
+// 5. APLICACIONES + ESTUDIANTES
+// ==========================================
+
+function createApp(ss, data) {
+  var sheet = getOrCreateSheet(ss, 'APPs', ['ID', 'Fecha', 'Nombre', 'Enlace', 'Funciones']);
+  var newId = getLastId(sheet) + 1;
+  var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+  sheet.appendRow([newId, fecha, data.nombre || "", data.enlace || "", data.funciones || ""]);
+  return response({ "result": "success", "message": "Aplicación guardada.", "id": newId });
+}
+
+function getApps(ss) {
+  var sheet = ss.getSheetByName('APPs');
+  if (!sheet) return response({ "result": "success", "data": [] });
+
+  var rows = sheet.getDataRange().getValues();
+  var items = [];
+  for (var i = 1; i < rows.length; i++) {
+    items.push({
+      id: rows[i][0],
+      fecha: cleanDate(rows[i][1]),
+      nombre: rows[i][2],
+      enlace: rows[i][3],
+      funciones: rows[i][4]
+    });
+  }
+  items.sort(function(a, b) { return String(a.nombre).localeCompare(String(b.nombre)); });
+  return response({ "result": "success", "data": items });
+}
+
+function createStudentPublication(ss, data) {
+  var sheet = getOrCreateSheet(ss, 'Publicaciones_Estudiantes', ['ID', 'Fecha', 'Titulo', 'Enlace', 'Descripcion']);
+  var newId = getLastId(sheet) + 1;
+  var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+  sheet.appendRow([newId, fecha, data.titulo || "", data.enlace || "", data.descripcion || ""]);
+  return response({ "result": "success", "message": "Publicación guardada.", "id": newId });
+}
+
+function getStudentPublications(ss) {
+  var sheet = ss.getSheetByName('Publicaciones_Estudiantes');
+  if (!sheet) return response({ "result": "success", "data": [] });
+
+  var rows = sheet.getDataRange().getValues();
+  var items = [];
+  for (var i = 1; i < rows.length; i++) {
+    items.push({
+      id: rows[i][0],
+      fecha: cleanDate(rows[i][1]),
+      titulo: rows[i][2],
+      enlace: rows[i][3],
+      descripcion: rows[i][4]
+    });
+  }
+  // Más nuevo primero
+  items.sort(function(a, b) { return String(b.fecha).localeCompare(String(a.fecha)); });
+  return response({ "result": "success", "data": items });
+}
+
+function createStudentTutorial(ss, data) {
+  var sheet = getOrCreateSheet(ss, 'Tutoriales_Estudiantes', ['ID', 'Fecha', 'Titulo', 'Enlace', 'Descripcion']);
+  var newId = getLastId(sheet) + 1;
+  var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+  sheet.appendRow([newId, fecha, data.titulo || "", data.enlace || "", data.descripcion || ""]);
+  return response({ "result": "success", "message": "Tutorial guardado.", "id": newId });
+}
+
+function getStudentTutorials(ss) {
+  var sheet = ss.getSheetByName('Tutoriales_Estudiantes');
+  if (!sheet) return response({ "result": "success", "data": [] });
+
+  var rows = sheet.getDataRange().getValues();
+  var items = [];
+  for (var i = 1; i < rows.length; i++) {
+    items.push({
+      id: rows[i][0],
+      fecha: cleanDate(rows[i][1]),
+      titulo: rows[i][2],
+      enlace: rows[i][3],
+      descripcion: rows[i][4]
+    });
+  }
+  items.sort(function(a, b) { return String(b.fecha).localeCompare(String(a.fecha)); });
+  return response({ "result": "success", "data": items });
+}
+
+// ==========================================
+// 6. PERFIL + AUTH + REGISTRO + DRIVE
 // ==========================================
 
 function getUserProfile(ss, userId) {
@@ -382,7 +390,7 @@ function getUserProfile(ss, userId) {
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] == userId) {
       var favs = [];
-      try { favs = JSON.parse(data[i][8]); } catch (e) { }
+      try { favs = JSON.parse(data[i][8]); } catch(e){}
       return response({
         "result": "success",
         "data": {
@@ -427,18 +435,10 @@ function authenticateUser(ss, email, password) {
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][2]).toLowerCase().trim() == String(email).toLowerCase().trim() &&
-      String(data[i][3]) == String(password)) {
+        String(data[i][3]) == String(password)) {
 
       if (String(data[i][5]).toLowerCase() === 'activo') {
-        return response({
-          "result": "success",
-          "user": {
-            "id": data[i][0],
-            "nombre": data[i][1],
-            "email": data[i][2],
-            "rol": data[i][4]
-          }
-        });
+        return response({ "result": "success", "user": { "id": data[i][0], "nombre": data[i][1], "email": data[i][2], "rol": data[i][4] } });
       } else {
         return response({ "result": "error", "message": "Usuario inactivo." });
       }
@@ -455,7 +455,7 @@ function registerUser(ss, data) {
   var lastRow = masterSheet.getLastRow();
   if (lastRow >= 2) {
     var emails = masterSheet.getRange(2, 3, lastRow - 1, 1).getValues().flat();
-    var cleanEmails = emails.map(function (e) { return String(e || "").toLowerCase().trim(); }).filter(Boolean);
+    var cleanEmails = emails.map(function(e) { return String(e || "").toLowerCase().trim(); }).filter(Boolean);
     if (cleanEmails.includes(String(data.email || "").toLowerCase().trim())) {
       return response({ "result": "error", "message": "El email ya está registrado." });
     }
@@ -463,7 +463,6 @@ function registerUser(ss, data) {
 
   var newId = getLastId(masterSheet) + 1;
   var rol = String(data.rol || "").toLowerCase().trim();
-
   var masterData = [newId, data.nombre, data.email, data.password, rol, 'inactivo', false];
 
   masterSheet.getRange(targetRow, 1, 1, masterData.length).setValues([masterData]);
@@ -489,44 +488,32 @@ function registerUser(ss, data) {
 function uploadDocumentToDrive(ss, data) {
   try {
     var folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
-    var blob = Utilities.newBlob(
-      Utilities.base64Decode(data.fileData),
-      data.mimeType || "application/pdf",
-      data.fileName
-    );
+    var blob = Utilities.newBlob(Utilities.base64Decode(data.fileData), data.mimeType || "application/pdf", data.fileName);
     var file = folder.createFile(blob);
 
-    // ✅ Hoja Documentacion con columnas: ID, Fecha, Categoria, Titulo, Numero, Resumen, ArchivoURL
     var docSheet = getOrCreateSheet(ss, 'Documentacion', ['ID', 'Fecha', 'Categoria', 'Titulo', 'Numero', 'Resumen', 'ArchivoURL']);
-
     var newId = getLastId(docSheet) + 1;
     var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
     docSheet.appendRow([newId, fecha, data.categoria, data.titulo, data.numero, data.resumen, file.getUrl()]);
-
-    return response({ "result": "success", "message": "Documento subido correctamente.", "fileUrl": file.getUrl() });
-
+    return response({ "result": "success", "message": "Documento subido correctamente." });
   } catch (e) {
     return response({ "result": "error", "message": "Error Drive: " + e.message });
   }
 }
 
 // ==========================================
-// 6. HELPERS
+// 7. HELPERS
 // ==========================================
 
 function cleanDate(rawDate) {
   if (!rawDate) return "";
-  if (Object.prototype.toString.call(rawDate) === '[object Date]') {
-    return Utilities.formatDate(rawDate, Session.getScriptTimeZone(), "dd/MM/yyyy");
-  }
+  if (Object.prototype.toString.call(rawDate) === '[object Date]') return Utilities.formatDate(rawDate, Session.getScriptTimeZone(), "dd/MM/yyyy");
   return String(rawDate);
 }
 
 function response(data) {
-  return ContentService
-    .createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
 }
 
 function getOrCreateSheet(ss, name, headers) {
@@ -542,15 +529,9 @@ function getOrCreateSheet(ss, name, headers) {
 function getLastId(sheet) {
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return 0;
-
   var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
   var maxId = 0;
-
-  ids.forEach(function (id) {
-    var n = Number(id);
-    if (!isNaN(n) && n > maxId) maxId = n;
-  });
-
+  ids.forEach(function(id) { var n = Number(id); if (!isNaN(n) && n > maxId) maxId = n; });
   return maxId;
 }
 
