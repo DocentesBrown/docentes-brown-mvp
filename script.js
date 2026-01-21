@@ -973,7 +973,11 @@ function renderActiveTalleresList(talleres) {
   if (!listEl) return;
 
   if (!talleres || talleres.length === 0) {
-    listEl.innerHTML = `<div class="empty-state-msg"><p>No hay talleres activos por el momento.</p><small>Volvé más tarde.</small></div>`;
+    listEl.innerHTML = `
+      <div class="empty-state-msg">
+        <p>No hay talleres activos por el momento.</p>
+        <small>Volvé más tarde.</small>
+      </div>`;
     return;
   }
 
@@ -984,9 +988,10 @@ function renderActiveTalleresList(talleres) {
         <h4>${escapeHtml(t.titulo || "")}</h4>
         <div class="meta-row">
           <span class="badge">${escapeHtml(t.fechaTaller || "")}</span>
-          ${t.link ? `<a class="btn-download" href="${t.link}" target="_blank" rel="noopener">Ver enlace</a>` : `<span class="badge-soft">Sin enlace</span>`}
         </div>
-        <p style="margin-top:8px; color:#666; font-size:.9rem;">Si querés anotarte, escribinos por WhatsApp (botón verde abajo a la derecha).</p>
+        <p style="margin-top:8px; color:#666; font-size:.9rem;">
+          Si deseas anotarte en este taller, clickeá el botón de WhatsApp.
+        </p>
       </li>
     `;
   });
