@@ -453,7 +453,6 @@ function setupEventListeners() {
       showMessage(msg, "Error de conexión.", "red");
     });
   });
-  });
 
   // ADMIN: Guardar participantes
   document.getElementById("btn-confirm-add-participants")?.addEventListener("click", () => {
