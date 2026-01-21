@@ -1,846 +1,782 @@
-// ==========================================
-// Campus Virtual - Docentes Brown
-// Frontend script.js (reconstruido)
-// ==========================================
-
 // --- CONFIGURACIÓN ---
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzm4PKtttlamu3mCWi6HRDkflThXS8Dx9UNMx3TIXc3q3MI_aDETFCthtyg6gGpoPnE9Q/exec";
 const WHATSAPP_NUMBER = "5491153196358";
 
-// --- CONSTANTES UI ---
-const NEW_DOCS_DAYS_WINDOW = 6; // luz roja si hay docs en los últimos 6 días
-
 // --- VARIABLES GLOBALES ---
-let globalDocs = [];              // docs desde backend
-let allDocentesCache = [];        // docentes simples cache
-let allAppsCache = [];            // apps cache
-let allStudentPublications = [];  // publicaciones estudiantes cache
-let allStudentTutorials = [];     // tutoriales estudiantes cache
-
-let currentEditingTallerId = null;
-let currentEditingMaterialTallerId = null;
+let globalDocs = [];
+let allDocentesCache = [];
 let selectedTallerIdForLink = null;
+let currentEditingTallerId = null;
+let userFavorites = [];
 
-let userFavorites = [];           // array de IDs (strings) de favoritos
-let talleresAdminCache = [];      // cache de talleres admin (para editar participantes/material)
-let myTalleresCache = [];         // cache de talleres docente
+let appsCache = [];
+let pubsCache = [];
+let tutsCache = [];
+let studentsActiveTab = "pubs"; // pubs | tuts
 
-// ==========================================
-// BOOT
-// ==========================================
-document.addEventListener('DOMContentLoaded', () => {
+// --- HELPERS API (sin headers JSON para evitar CORS preflight) ---
+function apiPost(payload) {
+  return fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }).then(r => r.json());
+}
+
+function showMessage(el, text, color = "var(--primary)") {
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.style.color = color;
+  el.innerText = text;
+}
+
+function hideMessage(el) {
+  if (!el) return;
+  el.classList.add("hidden");
+  el.innerText = "";
+}
+
+// --- INICIO SEGURO ---
+document.addEventListener("DOMContentLoaded", () => {
   console.log("DOM Cargado. Iniciando sistema...");
-
-  // 1) Eventos (siempre primero)
   setupEventListeners();
 
-  // 2) Splash + sesión
-  const splashScreen = document.getElementById('splash-screen');
-  const appContainer = document.getElementById('app-container');
+  const splashScreen = document.getElementById("splash-screen");
+  const appContainer = document.getElementById("app-container");
 
   setTimeout(() => {
-    splashScreen?.classList.add('hidden');
-    if (appContainer) appContainer.style.display = 'block';
+    if (splashScreen) splashScreen.classList.add("hidden");
+    if (appContainer) appContainer.style.display = "block";
     checkSession();
   }, 2000);
 });
 
-// ==========================================
-// HELPERS GENERALES
-// ==========================================
-function safeJsonParse(str, fallback) {
-  try { return JSON.parse(str); } catch (_) { return fallback; }
-}
-
-function postAction(action, payload = {}) {
-  // CORS-safe: NO seteamos headers Content-Type
-  return fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action, ...payload })
-  }).then(r => r.json());
-}
-
-function el(id) { return document.getElementById(id); }
-
-function parseDate(dateInput) {
-  if (!dateInput) return new Date(0);
-  let str = String(dateInput).trim();
-
-  // si viene con ISO
-  if (str.includes('T')) str = str.split('T')[0];
-
-  // dd/MM/yyyy
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
-    const [dd, mm, yyyy] = str.split('/').map(n => parseInt(n, 10));
-    return new Date(yyyy, mm - 1, dd);
-  }
-
-  // yyyy-MM-dd
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
-    const [yyyy, mm, dd] = str.split('-').map(n => parseInt(n, 10));
-    return new Date(yyyy, mm - 1, dd);
-  }
-
-  const d = new Date(str);
-  return isNaN(d.getTime()) ? new Date(0) : d;
-}
-
-function formatDateDisplay(dateInput) {
-  const d = parseDate(dateInput);
-  return d.toLocaleDateString('es-AR');
-}
-
-function ensureFavoritosOption() {
-  const select = el('filter-cat');
-  if (!select) return;
-
-  const exists = Array.from(select.options).some(o => o.value === 'favoritos');
-  if (!exists) {
-    const opt = document.createElement('option');
-    opt.value = 'favoritos';
-    opt.textContent = '⭐ Favoritos';
-    // lo ponemos arriba (después del "Todas")
-    if (select.options.length > 0) select.insertBefore(opt, select.options[1]);
-    else select.appendChild(opt);
-  }
-}
-
-// ==========================================
-// EVENTOS UI
-// ==========================================
+// --- EVENTOS ---
 function setupEventListeners() {
-  // -------------------------
+  // ADMIN: Documentos
+  document.getElementById("btn-admin-docs")?.addEventListener("click", () => {
+    document.getElementById("modal-upload-docs").classList.remove("hidden");
+    hideMessage(document.getElementById("upload-msg"));
+  });
+
   // ADMIN: Talleres
-  // -------------------------
-  el('btn-admin-talleres')?.addEventListener('click', () => {
-    el('modal-admin-list-talleres')?.classList.remove('hidden');
+  document.getElementById("btn-admin-talleres")?.addEventListener("click", () => {
+    document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
     loadAdminTalleresList();
   });
 
-  el('btn-open-create-taller')?.addEventListener('click', () => {
-    el('modal-admin-list-talleres')?.classList.add('hidden');
-    el('modal-create-taller')?.classList.remove('hidden');
-
-    el('form-create-taller')?.reset();
-    const msg = el('taller-msg');
-    if (msg) { msg.innerText = ""; msg.style.color = ""; msg.classList.add('hidden'); }
-    const count = el('count-selected');
-    if (count) count.innerText = "0";
-
-    loadDocentesForSelection('docentes-checklist');
-    // Si el HTML tiene checklist de docs para material, lo cargamos
-    loadDocsForSelectionIfExists('docs-checklist');
+  // ADMIN: Aplicaciones
+  document.getElementById("btn-admin-apps")?.addEventListener("click", () => {
+    openAppsModal(true);
   });
 
-  el('form-create-taller')?.addEventListener('submit', (e) => {
+  // ADMIN: Estudiantes (contenido)
+  document.getElementById("btn-admin-estudiantes")?.addEventListener("click", () => {
+    openStudentsModal(true, "pubs");
+  });
+
+  // DOCENTE: Ver Documentos
+  document.getElementById("btn-view-docs")?.addEventListener("click", () => {
+    document.getElementById("modal-view-docs").classList.remove("hidden");
+    document.getElementById("filter-search").value = "";
+    document.getElementById("filter-cat").value = "todos";
+    const newDocs = globalDocs.filter(doc => doc.isNew);
+    if (newDocs.length > 0) renderDocsList(newDocs);
+    else document.getElementById("docs-list-container").innerHTML =
+      `<div class="empty-state-msg"><p>No hay material nuevo.</p><small>Explora las categorías.</small></div>`;
+  });
+
+  // DOCENTE/ESTUDIANTE: Apps
+  document.getElementById("btn-view-apps")?.addEventListener("click", () => openAppsModal(false));
+  document.getElementById("btn-view-apps-est")?.addEventListener("click", () => openAppsModal(false));
+
+  // ESTUDIANTE: Publicaciones / Tutoriales
+  document.getElementById("btn-stu-publicaciones")?.addEventListener("click", () => openStudentsModal(false, "pubs"));
+  document.getElementById("btn-stu-tutoriales")?.addEventListener("click", () => openStudentsModal(false, "tuts"));
+
+  // DOCENTE: Ver Perfil
+  document.getElementById("btn-view-profile")?.addEventListener("click", () => {
+    document.getElementById("modal-profile").classList.remove("hidden");
+    const user = JSON.parse(sessionStorage.getItem("db_user"));
+    document.getElementById("static-nombre").value = user.nombre;
+    document.getElementById("static-email").value = user.email;
+
+    apiPost({ action: "getProfile", userId: user.id })
+      .then(json => {
+        if (json.result === "success") {
+          document.getElementById("prof-dni").value = json.data.dni;
+          document.getElementById("prof-tel").value = json.data.telefono;
+          document.getElementById("prof-inst").value = json.data.institucion;
+        }
+      });
+  });
+
+  // FILTROS DOCS
+  document.getElementById("filter-search")?.addEventListener("keyup", applyFilters);
+  document.getElementById("filter-cat")?.addEventListener("change", applyFilters);
+
+  // LOGIN
+  document.getElementById("login-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const msgBox = document.getElementById("login-message");
+    showMessage(msgBox, "Entrando...");
 
-    const msg = el('taller-msg');
-    if (msg) { msg.innerText = "Creando..."; msg.style.color = "var(--primary)"; msg.classList.remove('hidden'); }
-
-    const selectedIds = Array.from(document.querySelectorAll('#docentes-checklist input:checked')).map(cb => cb.value);
-
-    // Material (si existe el checklist)
-    const materialIds = Array.from(document.querySelectorAll('#docs-checklist input:checked')).map(cb => cb.value);
-
-    postAction('createTaller', {
-      titulo: el('taller-titulo')?.value || "",
-      fechaTaller: el('taller-fecha')?.value || "",
-      invitados: selectedIds,
-      materialIds: materialIds
+    apiPost({
+      action: "login",
+      email: document.getElementById("login-email").value,
+      password: document.getElementById("login-pass").value
     })
     .then(json => {
-      if (json.result === 'success') {
-        if (msg) { msg.innerText = "Listo."; msg.style.color = "green"; }
-        setTimeout(() => {
-          el('modal-create-taller')?.classList.add('hidden');
-          el('modal-admin-list-talleres')?.classList.remove('hidden');
-          loadAdminTalleresList();
-        }, 900);
+      if (json.result === "success") {
+        sessionStorage.setItem("db_user", JSON.stringify(json.user));
+        renderDashboard(json.user);
       } else {
-        if (msg) { msg.innerText = json.message || "Error."; msg.style.color = "red"; }
+        showMessage(msgBox, json.message, "red");
       }
     })
     .catch(err => {
       console.error(err);
-      if (msg) { msg.innerText = "Error de conexión."; msg.style.color = "red"; msg.classList.remove('hidden'); }
+      showMessage(msgBox, "Error de conexión.", "red");
     });
   });
 
-  el('btn-confirm-add-participants')?.addEventListener('click', () => {
-    const msg = el('add-part-msg');
-    if (msg) { msg.innerText = "Guardando cambios..."; msg.style.color = "var(--primary)"; msg.classList.remove('hidden'); }
-
-    const newIds = Array.from(document.querySelectorAll('#add-docentes-checklist input:checked')).map(cb => cb.value);
-
-    postAction('saveTallerParticipants', { tallerId: currentEditingTallerId, ids: newIds })
-      .then(json => {
-        if (json.result === 'success') {
-          if (msg) { msg.innerText = "Lista actualizada."; msg.style.color = "green"; }
-          setTimeout(() => {
-            el('modal-add-participants')?.classList.add('hidden');
-            el('modal-admin-list-talleres')?.classList.remove('hidden');
-            loadAdminTalleresList();
-          }, 900);
-        } else {
-          if (msg) { msg.innerText = "Error: " + (json.message || "No se pudo guardar."); msg.style.color = "red"; }
-        }
-      })
-      .catch(err => {
-        console.error(err);
-        if (msg) { msg.innerText = "Error de conexión."; msg.style.color = "red"; }
-      });
+  // LOGOUT
+  document.getElementById("logout-btn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("db_user");
+    location.reload();
   });
 
-  // Editar material (si existe UI)
-  el('btn-confirm-material')?.addEventListener('click', () => {
-    const msg = el('material-msg');
-    if (msg) { msg.innerText = "Guardando material..."; msg.style.color = "var(--primary)"; msg.classList.remove('hidden'); }
-
-    const materialIds = Array.from(document.querySelectorAll('#material-docs-checklist input:checked')).map(cb => cb.value);
-
-    postAction('saveTallerMaterials', { tallerId: currentEditingMaterialTallerId, materialIds })
-      .then(json => {
-        if (json.result === 'success') {
-          if (msg) { msg.innerText = "Material actualizado."; msg.style.color = "green"; }
-          setTimeout(() => {
-            el('modal-edit-material')?.classList.add('hidden');
-            el('modal-admin-list-talleres')?.classList.remove('hidden');
-            loadAdminTalleresList();
-          }, 800);
-        } else {
-          if (msg) { msg.innerText = "Error: " + (json.message || "No se pudo guardar."); msg.style.color = "red"; }
-        }
-      })
-      .catch(err => {
-        console.error(err);
-        if (msg) { msg.innerText = "Error de conexión."; msg.style.color = "red"; }
-      });
-  });
-
-  // Link meet
-  el('btn-save-link')?.addEventListener('click', () => {
-    const link = el('meet-link-input')?.value || "";
-    if (!link) return;
-
-    postAction('updateTallerLink', { tallerId: selectedTallerIdForLink, link })
-      .then(() => {
-        el('modal-add-link')?.classList.add('hidden');
-        loadAdminTalleresList();
-      })
-      .catch(console.error);
-  });
-
-  // -------------------------
-  // DOCENTE: Documentación
-  // -------------------------
-  el('btn-view-docs')?.addEventListener('click', () => {
-    el('modal-view-docs')?.classList.remove('hidden');
-
-    const search = el('filter-search');
-    if (search) search.value = "";
-
-    ensureFavoritosOption();
-
-    // Por defecto: Favoritos
-    const filterCat = el('filter-cat');
-    if (filterCat) filterCat.value = 'favoritos';
-
-    // Al abrir, marcamos como visto (pero badge depende de últimos 6 días)
-    localStorage.setItem('last_docs_view_date', new Date().toISOString());
-    el('notification-badge')?.classList.add('hidden');
-
-    // Si no tenemos docs cargados, los pedimos
-    if (!globalDocs || globalDocs.length === 0) {
-      refreshDocuments().then(() => applyFilters());
-    } else {
-      applyFilters();
-    }
-  });
-
-  // filtros docs
-  el('filter-search')?.addEventListener('keyup', applyFilters);
-  el('filter-cat')?.addEventListener('change', applyFilters);
-
-  // -------------------------
-  // DOCENTE: Perfil
-  // -------------------------
-  el('btn-view-profile')?.addEventListener('click', () => {
-    el('modal-profile')?.classList.remove('hidden');
-    const user = safeJsonParse(sessionStorage.getItem('db_user'), null);
-    if (!user) return;
-
-    el('static-nombre').value = user.nombre || "";
-    el('static-email').value = user.email || "";
-
-    postAction('getProfile', { userId: user.id })
-      .then(json => {
-        if (json.result === 'success') {
-          el('prof-dni').value = json.data.dni || "";
-          el('prof-tel').value = json.data.telefono || "";
-          el('prof-inst').value = json.data.institucion || "";
-        }
-      })
-      .catch(console.error);
-  });
-
-  el('form-profile')?.addEventListener('submit', (e) => {
+  // ABRIR REGISTRO
+  document.getElementById("open-register-modal")?.addEventListener("click", (e) => {
     e.preventDefault();
-    const user = safeJsonParse(sessionStorage.getItem('db_user'), null);
-    if (!user) return;
+    document.getElementById("register-modal").classList.remove("hidden");
+    document.getElementById("register-form").classList.remove("hidden");
+    document.getElementById("register-form").reset();
+    const title = document.getElementById("register-title");
+    if (title) title.classList.remove("hidden");
+    document.getElementById("msg-exito-registro").classList.add("hidden");
+    document.getElementById("register-msg").classList.add("hidden");
+  });
 
-    postAction('updateProfile', {
-      userId: user.id,
-      dni: el('prof-dni')?.value || "",
-      telefono: el('prof-tel')?.value || "",
-      institucion: el('prof-inst')?.value || ""
+  // REGISTRO
+  document.getElementById("register-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p1 = document.getElementById("reg-pass").value;
+    const p2 = document.getElementById("reg-pass-confirm").value;
+    const msgBox = document.getElementById("register-msg");
+
+    if (p1 !== p2) {
+      showMessage(msgBox, "Las contraseñas no coinciden.", "red");
+      return;
+    }
+
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.innerText;
+    btn.innerText = "Enviando solicitud...";
+    btn.disabled = true;
+    msgBox.classList.add("hidden");
+
+    apiPost({
+      action: "register",
+      nombre: document.getElementById("reg-nombre").value,
+      email: document.getElementById("reg-email").value,
+      rol: document.getElementById("reg-rol").value,
+      password: p1
     })
     .then(json => {
-      const pm = el('profile-msg');
-      if (pm) {
-        pm.classList.remove('hidden');
-        pm.style.color = (json.result === 'success') ? 'green' : 'red';
-        pm.innerText = json.message || "Listo.";
+      if (json.result === "success") {
+        document.getElementById("register-form").classList.add("hidden");
+        const title = document.getElementById("register-title");
+        if (title) title.classList.add("hidden");
+        document.getElementById("msg-exito-registro").classList.remove("hidden");
+      } else {
+        showMessage(msgBox, "Error: " + json.message, "red");
+        btn.innerText = originalText;
+        btn.disabled = false;
       }
     })
     .catch(err => {
       console.error(err);
-      const pm = el('profile-msg');
-      if (pm) { pm.classList.remove('hidden'); pm.style.color = 'red'; pm.innerText = "Error de conexión."; }
+      showMessage(msgBox, "Error de conexión. Intente nuevamente.", "red");
+      btn.innerText = originalText;
+      btn.disabled = false;
     });
   });
 
-  // -------------------------
-  // ADMIN: Subir documentación
-  // -------------------------
-  el('btn-admin-docs')?.addEventListener('click', () => el('modal-upload-docs')?.classList.remove('hidden'));
-
-  el('form-upload-docs')?.addEventListener('submit', (e) => {
+  // SUBIR DOCUMENTO (admin)
+  document.getElementById("form-upload-docs")?.addEventListener("submit", (e) => {
     e.preventDefault();
-
-    const msg = el('upload-msg');
-    const fileInput = el('doc-file');
+    const msg = document.getElementById("upload-msg");
+    const fileInput = document.getElementById("doc-file");
     const file = fileInput?.files?.[0];
 
-    if (msg) {
-      msg.classList.remove('hidden');
-      msg.style.color = "var(--primary)";
-      msg.innerText = "";
-    }
-
     if (!file) {
-      if (msg) { msg.style.color = "red"; msg.innerText = "Seleccioná un archivo antes de subir."; }
+      showMessage(msg, "Seleccioná un PDF antes de subir.", "red");
       return;
     }
 
     const submitBtn = e.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn ? submitBtn.innerText : "";
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Subiendo..."; }
+    const originalText = submitBtn.innerText;
+    submitBtn.disabled = true;
+    submitBtn.innerText = "Subiendo...";
 
-    if (msg) msg.innerText = "Leyendo archivo...";
+    showMessage(msg, "Leyendo archivo...");
 
     const reader = new FileReader();
     reader.readAsDataURL(file);
 
-    reader.onload = () => {
-      const base64 = String(reader.result || "").split(',')[1];
+    reader.onload = function () {
+      const base64 = String(reader.result || "").split(",")[1];
       if (!base64) {
-        if (msg) { msg.style.color = "red"; msg.innerText = "No se pudo leer el archivo."; }
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = originalText; }
+        showMessage(msg, "No se pudo leer el archivo.", "red");
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalText;
         return;
       }
 
-      if (msg) msg.innerText = "Subiendo a Drive...";
+      showMessage(msg, "Subiendo a Drive...");
 
-      postAction('uploadDocument', {
-        categoria: el('doc-cat')?.value || "",
-        numero: el('doc-num')?.value || "",
-        titulo: el('doc-title')?.value || "",
-        resumen: el('doc-desc')?.value || "",
+      apiPost({
+        action: "uploadDocument",
+        categoria: document.getElementById("doc-cat").value,
+        numero: document.getElementById("doc-num").value,
+        titulo: document.getElementById("doc-title").value,
+        resumen: document.getElementById("doc-desc").value,
         fileName: file.name,
         mimeType: file.type || "application/pdf",
         fileData: base64
       })
       .then(json => {
-        if (json.result === 'success') {
-          if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Documento subido correctamente."; }
+        if (json.result === "success") {
+          showMessage(msg, json.message || "Documento subido correctamente.", "green");
           e.target.reset();
-          // refrescar docs + badge de últimos 6 días
-          refreshDocuments().then(() => checkNewDocumentsBadge());
         } else {
-          if (msg) { msg.style.color = "red"; msg.innerText = json.message || "No se pudo subir el documento."; }
+          showMessage(msg, json.message || "Error al subir.", "red");
         }
       })
       .catch(err => {
         console.error(err);
-        if (msg) { msg.style.color = "red"; msg.innerText = "Error de conexión al subir el documento."; }
+        showMessage(msg, "Error de conexión al subir el documento.", "red");
       })
       .finally(() => {
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = originalText; }
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalText;
       });
     };
 
-    reader.onerror = () => {
-      if (msg) { msg.style.color = "red"; msg.innerText = "No se pudo leer el archivo."; }
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = originalText; }
+    reader.onerror = function () {
+      showMessage(msg, "No se pudo leer el archivo (FileReader).", "red");
+      submitBtn.disabled = false;
+      submitBtn.innerText = originalText;
     };
   });
 
-  // -------------------------
-  // Login / Registro / Logout
-  // -------------------------
-  el('login-form')?.addEventListener('submit', (e) => {
+  // PERFIL
+  document.getElementById("form-profile")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const msgBox = el('login-message');
-    if (msgBox) { msgBox.innerText = "Entrando..."; msgBox.style.color = ""; msgBox.classList.remove('hidden'); }
+    const user = JSON.parse(sessionStorage.getItem("db_user"));
+    const msg = document.getElementById("profile-msg");
 
-    postAction('login', {
-      email: el('login-email')?.value || "",
-      password: el('login-pass')?.value || ""
+    apiPost({
+      action: "updateProfile",
+      userId: user.id,
+      dni: document.getElementById("prof-dni").value,
+      telefono: document.getElementById("prof-tel").value,
+      institucion: document.getElementById("prof-inst").value
     })
     .then(json => {
-      if (json.result === 'success') {
-        sessionStorage.setItem('db_user', JSON.stringify(json.user));
-        renderDashboard(json.user);
+      showMessage(msg, json.message || "Perfil actualizado.", "green");
+    })
+    .catch(err => {
+      console.error(err);
+      showMessage(msg, "Error al guardar.", "red");
+    });
+  });
+
+  // ADMIN: Crear Taller (abrir)
+  document.getElementById("btn-open-create-taller")?.addEventListener("click", () => {
+    document.getElementById("modal-admin-list-talleres").classList.add("hidden");
+    document.getElementById("modal-create-taller").classList.remove("hidden");
+    document.getElementById("form-create-taller").reset();
+    hideMessage(document.getElementById("taller-msg"));
+    document.getElementById("count-selected").innerText = "0";
+    loadDocentesForSelection("docentes-checklist");
+  });
+
+  // ADMIN: Crear Taller (submit)
+  document.getElementById("form-create-taller")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("taller-msg");
+    const checked = document.querySelectorAll("#docentes-checklist input:checked");
+    const selectedIds = Array.from(checked).map(cb => cb.value);
+
+    showMessage(msg, "Creando...");
+
+    apiPost({
+      action: "createTaller",
+      titulo: document.getElementById("taller-titulo").value,
+      fechaTaller: document.getElementById("taller-fecha").value,
+      invitados: selectedIds
+    })
+    .then(json => {
+      if (json.result === "success") {
+        showMessage(msg, "Listo.", "green");
+        setTimeout(() => {
+          document.getElementById("modal-create-taller").classList.add("hidden");
+          document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
+          loadAdminTalleresList();
+        }, 800);
       } else {
-        if (msgBox) { msgBox.innerText = json.message || "Credenciales incorrectas."; msgBox.style.color = "red"; }
+        showMessage(msg, json.message || "Error.", "red");
       }
     })
     .catch(err => {
       console.error(err);
-      if (msgBox) { msgBox.innerText = "Error de conexión."; msgBox.style.color = "red"; }
+      showMessage(msg, "Error de conexión.", "red");
     });
   });
 
-  el('logout-btn')?.addEventListener('click', () => {
-    sessionStorage.removeItem('db_user');
-    location.reload();
-  });
+  // ADMIN: Guardar participantes
+  document.getElementById("btn-confirm-add-participants")?.addEventListener("click", () => {
+    const msg = document.getElementById("add-part-msg");
+    const checked = document.querySelectorAll("#add-docentes-checklist input:checked");
+    const newIds = Array.from(checked).map(cb => cb.value);
 
-  el('open-register-modal')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    el('register-modal')?.classList.remove('hidden');
-    el('register-form')?.classList.remove('hidden');
-    el('register-form')?.reset();
-    el('register-title')?.classList.remove('hidden');
-    el('msg-exito-registro')?.classList.add('hidden');
-    el('register-msg')?.classList.add('hidden');
-  });
+    showMessage(msg, "Guardando cambios...");
 
-  el('register-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-
-    const p1 = el('reg-pass')?.value || "";
-    const p2 = el('reg-pass-confirm')?.value || "";
-    const msgBox = el('register-msg');
-
-    if (p1 !== p2) {
-      if (msgBox) { msgBox.innerText = "Las contraseñas no coinciden."; msgBox.style.color = "red"; msgBox.classList.remove('hidden'); }
-      return;
-    }
-
-    const btn = e.target.querySelector('button[type="submit"]');
-    const originalText = btn ? btn.innerText : "";
-    if (btn) { btn.innerText = "Enviando solicitud..."; btn.disabled = true; }
-    msgBox?.classList.add('hidden');
-
-    postAction('register', {
-      nombre: el('reg-nombre')?.value || "",
-      email: el('reg-email')?.value || "",
-      rol: el('reg-rol')?.value || "",
-      password: p1
+    apiPost({
+      action: "saveTallerParticipants",
+      tallerId: currentEditingTallerId,
+      ids: newIds
     })
     .then(json => {
-      if (json.result === 'success') {
-        el('register-form')?.classList.add('hidden');
-        el('register-title')?.classList.add('hidden');
-        el('msg-exito-registro')?.classList.remove('hidden');
+      if (json.result === "success") {
+        showMessage(msg, "Lista actualizada.", "green");
+        setTimeout(() => {
+          document.getElementById("modal-add-participants").classList.add("hidden");
+          document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
+          loadAdminTalleresList();
+        }, 800);
       } else {
-        if (msgBox) { msgBox.innerText = "Error: " + (json.message || "No se pudo registrar."); msgBox.style.color = "red"; msgBox.classList.remove('hidden'); }
-        if (btn) { btn.innerText = originalText; btn.disabled = false; }
+        showMessage(msg, "Error: " + json.message, "red");
       }
     })
     .catch(err => {
       console.error(err);
-      if (msgBox) { msgBox.innerText = "Error de conexión. Intente nuevamente."; msgBox.style.color = "red"; msgBox.classList.remove('hidden'); }
-      if (btn) { btn.innerText = originalText; btn.disabled = false; }
+      showMessage(msg, "Error de conexión.", "red");
     });
   });
 
-  // -------------------------
-  // Cerrar modales
-  // -------------------------
-  document.querySelectorAll('.close-modal, .close-modal-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.target.closest('.modal')?.classList.add('hidden');
+  // LINK MEET
+  document.getElementById("btn-save-link")?.addEventListener("click", () => {
+    const link = document.getElementById("meet-link-input").value;
+    if (!link) return;
+
+    apiPost({
+      action: "updateTallerLink",
+      tallerId: selectedTallerIdForLink,
+      link: link
+    })
+    .then(() => {
+      document.getElementById("modal-add-link").classList.add("hidden");
+      document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
+      loadAdminTalleresList();
     });
   });
 
-  // -------------------------
-  // Whatsapp
-  // -------------------------
-  el('whatsapp-float')?.addEventListener('click', () => {
-    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=Hola,%20tengo%20una%20consulta%20sobre%20el%20Campus.`, '_blank');
-  });
+  // BUSCADORES checklist
+  document.getElementById("search-docente-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "docentes-checklist"));
+  document.getElementById("search-add-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "add-docentes-checklist"));
 
-  // -------------------------
-  // Buscadores en checklists (si existen)
-  // -------------------------
-  el('search-docente-input')?.addEventListener('keyup', (e) => filterChecklist(e.target.value, 'docentes-checklist'));
-  el('search-add-input')?.addEventListener('keyup', (e) => filterChecklist(e.target.value, 'add-docentes-checklist'));
-  el('search-docs-input')?.addEventListener('keyup', (e) => filterDocsChecklist(e.target.value, 'docs-checklist'));
-  el('search-material-input')?.addEventListener('keyup', (e) => filterDocsChecklist(e.target.value, 'material-docs-checklist'));
-
-  // -------------------------
-  // Apps / Estudiantes (si existe UI en tu HTML)
-  // -------------------------
-  // Estos listeners son opcionales; no rompen si el HTML no está.
-  el('btn-view-apps')?.addEventListener('click', () => {
-    el('modal-apps')?.classList.remove('hidden');
-    loadApps();
-  });
-
-  el('form-create-app')?.addEventListener('submit', (e) => {
+  // APLICACIONES: crear
+  document.getElementById("form-create-app")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const msg = el('app-msg');
-    if (msg) { msg.classList.remove('hidden'); msg.style.color = "var(--primary)"; msg.innerText = "Guardando..."; }
+    const msg = document.getElementById("app-msg");
+    showMessage(msg, "Guardando...");
 
-    postAction('createApp', {
-      nombre: el('app-nombre')?.value || "",
-      enlace: el('app-enlace')?.value || "",
-      funciones: el('app-funciones')?.value || ""
+    apiPost({
+      action: "createApp",
+      nombre: document.getElementById("app-name").value,
+      enlace: document.getElementById("app-link").value,
+      funciones: document.getElementById("app-functions").value
     })
     .then(json => {
-      if (json.result === 'success') {
-        if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Aplicación guardada."; }
-        e.target.reset();
+      if (json.result === "success") {
+        showMessage(msg, "Aplicación guardada.", "green");
+        document.getElementById("form-create-app").reset();
         loadApps(true);
       } else {
-        if (msg) { msg.style.color = "red"; msg.innerText = json.message || "No se pudo guardar."; }
+        showMessage(msg, json.message || "Error.", "red");
       }
     })
     .catch(err => {
       console.error(err);
-      if (msg) { msg.style.color = "red"; msg.innerText = "Error de conexión."; }
+      showMessage(msg, "Error de conexión.", "red");
     });
   });
 
-  el('btn-student-publications')?.addEventListener('click', () => {
-    el('modal-students')?.classList.remove('hidden');
-    setStudentTab('publicaciones');
-    loadStudentPublications();
-  });
+  // ESTUDIANTES: tabs
+  document.getElementById("tab-pubs")?.addEventListener("click", () => setStudentsTab("pubs"));
+  document.getElementById("tab-tuts")?.addEventListener("click", () => setStudentsTab("tuts"));
 
-  el('btn-student-tutorials')?.addEventListener('click', () => {
-    el('modal-students')?.classList.remove('hidden');
-    setStudentTab('tutoriales');
-    loadStudentTutorials();
-  });
-
-  el('form-student-publication')?.addEventListener('submit', (e) => {
+  // ESTUDIANTES: crear publicación
+  document.getElementById("form-create-publicacion")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const msg = el('student-msg');
-    if (msg) { msg.classList.remove('hidden'); msg.style.color = "var(--primary)"; msg.innerText = "Guardando..."; }
+    const msg = document.getElementById("pub-msg");
+    showMessage(msg, "Guardando...");
 
-    postAction('createStudentPublication', {
-      titulo: el('pub-titulo')?.value || "",
-      enlace: el('pub-enlace')?.value || "",
-      descripcion: el('pub-desc')?.value || ""
+    apiPost({
+      action: "createStudentPublication",
+      titulo: document.getElementById("pub-title").value,
+      enlace: document.getElementById("pub-link").value,
+      descripcion: document.getElementById("pub-desc").value
     })
     .then(json => {
-      if (json.result === 'success') {
-        if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Publicación guardada."; }
-        e.target.reset();
-        loadStudentPublications(true);
+      if (json.result === "success") {
+        showMessage(msg, "Publicación guardada.", "green");
+        document.getElementById("form-create-publicacion").reset();
+        loadPublications(true);
       } else {
-        if (msg) { msg.style.color = "red"; msg.innerText = json.message || "No se pudo guardar."; }
+        showMessage(msg, json.message || "Error.", "red");
       }
     })
     .catch(err => {
       console.error(err);
-      if (msg) { msg.style.color = "red"; msg.innerText = "Error de conexión."; }
+      showMessage(msg, "Error de conexión.", "red");
     });
   });
 
-  el('form-student-tutorial')?.addEventListener('submit', (e) => {
+  // ESTUDIANTES: crear tutorial
+  document.getElementById("form-create-tutorial")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const msg = el('student-msg');
-    if (msg) { msg.classList.remove('hidden'); msg.style.color = "var(--primary)"; msg.innerText = "Guardando..."; }
+    const msg = document.getElementById("tut-msg");
+    showMessage(msg, "Guardando...");
 
-    postAction('createStudentTutorial', {
-      titulo: el('tut-titulo')?.value || "",
-      enlace: el('tut-enlace')?.value || "",
-      descripcion: el('tut-desc')?.value || ""
+    apiPost({
+      action: "createStudentTutorial",
+      titulo: document.getElementById("tut-title").value,
+      enlace: document.getElementById("tut-link").value,
+      descripcion: document.getElementById("tut-desc").value
     })
     .then(json => {
-      if (json.result === 'success') {
-        if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Tutorial guardado."; }
-        e.target.reset();
-        loadStudentTutorials(true);
+      if (json.result === "success") {
+        showMessage(msg, "Tutorial guardado.", "green");
+        document.getElementById("form-create-tutorial").reset();
+        loadTutorials(true);
       } else {
-        if (msg) { msg.style.color = "red"; msg.innerText = json.message || "No se pudo guardar."; }
+        showMessage(msg, json.message || "Error.", "red");
       }
     })
     .catch(err => {
       console.error(err);
-      if (msg) { msg.style.color = "red"; msg.innerText = "Error de conexión."; }
+      showMessage(msg, "Error de conexión.", "red");
     });
+  });
+
+  // CERRAR MODALES
+  document.querySelectorAll(".close-modal, .close-modal-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const modal = e.target.closest(".modal");
+      if (modal) modal.classList.add("hidden");
+    });
+  });
+
+  // WHATSAPP
+  document.getElementById("whatsapp-float")?.addEventListener("click", () => {
+    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=Hola,%20tengo%20una%20consulta%20sobre%20el%20Campus.`, "_blank");
   });
 }
 
-// ==========================================
-// SESIÓN / DASH
-// ==========================================
+// --- SESIÓN Y DASHBOARD ---
 function checkSession() {
-  const storedUser = sessionStorage.getItem('db_user');
-  if (storedUser) renderDashboard(safeJsonParse(storedUser, null));
+  const storedUser = sessionStorage.getItem("db_user");
+  if (storedUser) renderDashboard(JSON.parse(storedUser));
   else showLogin();
 }
 
 function showLogin() {
-  el('login-view')?.classList.remove('hidden');
-  el('dashboard-view')?.classList.add('hidden');
-  el('main-header')?.classList.add('hidden');
-  el('whatsapp-float')?.classList.add('hidden');
+  document.getElementById("login-view").classList.remove("hidden");
+  document.getElementById("dashboard-view").classList.add("hidden");
+  document.getElementById("main-header").classList.add("hidden");
 }
 
 function renderDashboard(user) {
-  if (!user) return showLogin();
+  document.getElementById("login-view").classList.add("hidden");
+  document.getElementById("dashboard-view").classList.remove("hidden");
+  document.getElementById("main-header").classList.remove("hidden");
+  document.getElementById("whatsapp-float").classList.remove("hidden");
 
-  el('login-view')?.classList.add('hidden');
-  el('dashboard-view')?.classList.remove('hidden');
-  el('main-header')?.classList.remove('hidden');
-  el('whatsapp-float')?.classList.remove('hidden');
+  document.getElementById("user-name-display").innerText = user.nombre;
+  document.getElementById("user-role-display").innerText = String(user.rol || "").toUpperCase();
 
-  el('user-name-display').innerText = user.nombre || "";
-  el('user-role-display').innerText = String(user.rol || "").toUpperCase();
+  document.querySelectorAll(".role-dash").forEach(d => d.classList.add("hidden"));
 
-  document.querySelectorAll('.role-dash').forEach(d => d.classList.add('hidden'));
+  let dashId = `dash-${String(user.rol || "").toLowerCase()}`;
+  if (String(user.rol || "").toLowerCase() === "admin" || String(user.rol || "").toLowerCase() === "administrador") dashId = "dash-administrador";
 
-  let dashId = `dash-${String(user.rol || '').toLowerCase()}`;
-  if (String(user.rol || '').toLowerCase() === 'admin' || String(user.rol || '').toLowerCase() === 'administrador') {
-    dashId = 'dash-administrador';
-  }
-  el(dashId)?.classList.remove('hidden');
+  const targetDash = document.getElementById(dashId);
+  if (targetDash) targetDash.classList.remove("hidden");
 
-  // Carga base por rol
-  if (String(user.rol || '').toLowerCase() === 'docente') {
-    postAction('getProfile', { userId: user.id })
+  // Ajustar visibilidad de bloques admin en modales
+  const isAdmin = (dashId === "dash-administrador");
+  toggleAdminBlocks(isAdmin);
+
+  // Cargar data base
+  if (String(user.rol || "").toLowerCase() === "docente") {
+    apiPost({ action: "getProfile", userId: user.id })
       .then(json => {
-        if (json.result === 'success') userFavorites = Array.isArray(json.data?.favoritos) ? json.data.favoritos.map(String) : [];
-      })
-      .finally(() => {
-        refreshDocuments().then(() => checkNewDocumentsBadge());
+        if (json.result === "success" && json.data.favoritos) userFavorites = json.data.favoritos;
+        checkNewDocuments();
         loadMyTalleres(user.id);
       });
-  } else {
-    // Admin también puede ver badge de docs recientes si quiere
-    refreshDocuments().then(() => checkNewDocumentsBadge());
+  }
+
+  if (String(user.rol || "").toLowerCase().includes("estudiante")) {
+    // pre-cargar listas (opcional)
+    loadApps(false);
+    loadPublications(false);
+    loadTutorials(false);
   }
 }
 
-// ==========================================
-// DOCUMENTACIÓN
-// ==========================================
-function refreshDocuments() {
-  return postAction('getDocuments')
-    .then(json => {
-      globalDocs = Array.isArray(json.data) ? json.data : [];
-      return globalDocs;
-    })
-    .catch(err => {
-      console.error(err);
-      globalDocs = [];
-      return globalDocs;
-    });
-}
-
-function checkNewDocumentsBadge() {
-  // Luz roja si hay docs cargados en los últimos 6 días.
-  const badge = el('notification-badge');
-  if (!badge) return;
-
-  const now = new Date();
-  const windowStart = new Date();
-  windowStart.setDate(now.getDate() - NEW_DOCS_DAYS_WINDOW);
-
-  const hasRecent = (globalDocs || []).some(d => parseDate(d.fecha) >= windowStart);
-  if (hasRecent) badge.classList.remove('hidden');
-  else badge.classList.add('hidden');
-}
-
-function applyFilters() {
-  const term = (el('filter-search')?.value || "").toLowerCase();
-  const cat = el('filter-cat')?.value || "todos";
-
-  let filtered = (globalDocs || []).filter(doc => {
-    const t = String(doc.titulo || "").toLowerCase();
-    const r = String(doc.resumen || "").toLowerCase();
-    const matchesText = t.includes(term) || r.includes(term);
-    return matchesText;
+function toggleAdminBlocks(isAdmin) {
+  document.querySelectorAll(".admin-block").forEach(el => {
+    if (isAdmin) el.classList.remove("hidden");
+    else el.classList.add("hidden");
   });
 
-  if (cat === 'favoritos') {
-    filtered = filtered.filter(doc => userFavorites.includes(String(doc.id)));
-  } else if (cat !== 'todos') {
-    filtered = filtered.filter(doc => String(doc.categoria || "") === String(cat));
-  }
-
-  renderDocsList(filtered);
+  const roleBadge = document.getElementById("apps-role-badge");
+  if (roleBadge) roleBadge.innerText = isAdmin ? "ADMIN" : "LISTA";
 }
 
-function renderDocsList(docs) {
-  const container = el('docs-list-container');
-  if (!container) return;
+// --- APLICACIONES ---
+function openAppsModal(isAdminOpen) {
+  document.getElementById("modal-apps").classList.remove("hidden");
+  const user = JSON.parse(sessionStorage.getItem("db_user") || "null");
+  const isAdmin = user && (String(user.rol || "").toLowerCase() === "admin" || String(user.rol || "").toLowerCase() === "administrador");
+  toggleAdminBlocks(isAdmin);
 
-  if (!docs || docs.length === 0) {
-    container.innerHTML = `<div class="empty-state-msg"><p>No se encontraron documentos.</p></div>`;
+  // limpiar mensajes
+  hideMessage(document.getElementById("app-msg"));
+
+  loadApps(isAdmin);
+}
+
+function loadApps(force = false) {
+  if (!force && appsCache && appsCache.length > 0) {
+    renderAppsList(appsCache);
     return;
   }
 
-  // Orden: favoritos primero si estás en favoritos; sino por título
-  const cat = el('filter-cat')?.value || "todos";
-  const list = [...docs];
+  const container = document.getElementById("apps-list-container");
+  if (container) container.innerHTML = "<p>Cargando...</p>";
 
-  if (cat !== 'favoritos') {
-    list.sort((a, b) => String(a.titulo || "").localeCompare(String(b.titulo || "")));
+  apiPost({ action: "getApps" })
+    .then(json => {
+      appsCache = (json && json.data) ? json.data : [];
+      renderAppsList(appsCache);
+    })
+    .catch(err => {
+      console.error(err);
+      if (container) container.innerHTML = "<p style='color:red;'>Error al cargar apps.</p>";
+    });
+}
+
+function renderAppsList(apps) {
+  const container = document.getElementById("apps-list-container");
+  if (!container) return;
+
+  if (!apps || apps.length === 0) {
+    container.innerHTML = `<div class="empty-state-msg"><p>No hay aplicaciones cargadas.</p><small>Volvé más tarde.</small></div>`;
+    return;
   }
 
-  let html = '<ul>';
-  list.forEach(doc => {
-    const isFav = userFavorites.includes(String(doc.id));
-    const heartClass = isFav ? 'fav-btn fav-active' : 'fav-btn';
-    const heartSymbol = isFav ? '♥' : '♡';
-
+  let html = '<ul class="simple-list">';
+  apps.forEach(app => {
     html += `
-      <li class="doc-item">
-        <div class="doc-info">
-          <strong>${escapeHtml(doc.titulo || "")}</strong>
-          <br>
-          <small>(${escapeHtml(doc.numero || "S/N")} - ${escapeHtml(formatDateDisplay(doc.fecha))})</small>
-          <br>
-          <span class="badge">${escapeHtml(doc.categoria || "")}</span>
-          <p>${escapeHtml(doc.resumen || "")}</p>
+      <li class="simple-item">
+        <h4>${escapeHtml(app.nombre || "")}</h4>
+        <div class="meta-row">
+          <span class="badge">${escapeHtml(app.fecha || "")}</span>
+          <a class="btn-download" href="${app.enlace}" target="_blank" rel="noopener">Abrir</a>
         </div>
-        <div class="doc-actions">
-          <button class="${heartClass}" onclick="toggleDocFavorite('${String(doc.id)}', this)" title="Marcar Favorito">${heartSymbol}</button>
-          <a href="${String(doc.url || "#")}" target="_blank" class="btn-download">Ver PDF</a>
-        </div>
-      </li>`;
+        ${app.funciones ? `<p>${escapeHtml(app.funciones)}</p>` : ""}
+      </li>
+    `;
   });
-  html += '</ul>';
+  html += "</ul>";
   container.innerHTML = html;
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+// --- ESTUDIANTES: modal y tabs ---
+function openStudentsModal(isAdminOpen, tab) {
+  document.getElementById("modal-estudiantes").classList.remove("hidden");
+  setStudentsTab(tab || "pubs");
+
+  const user = JSON.parse(sessionStorage.getItem("db_user") || "null");
+  const isAdmin = user && (String(user.rol || "").toLowerCase() === "admin" || String(user.rol || "").toLowerCase() === "administrador");
+  toggleAdminBlocks(isAdmin);
+
+  hideMessage(document.getElementById("pub-msg"));
+  hideMessage(document.getElementById("tut-msg"));
 }
 
-function toggleDocFavorite(docId, btn) {
-  const user = safeJsonParse(sessionStorage.getItem('db_user'), null);
-  if (!user) return;
+function setStudentsTab(tab) {
+  studentsActiveTab = tab;
 
-  // Optimistic UI
-  const isActive = btn.classList.contains('fav-active');
-  if (isActive) { btn.classList.remove('fav-active'); btn.innerHTML = '♡'; }
-  else { btn.classList.add('fav-active'); btn.innerHTML = '♥'; }
+  const btnP = document.getElementById("tab-pubs");
+  const btnT = document.getElementById("tab-tuts");
+  const wrapP = document.getElementById("form-pubs-wrap");
+  const wrapT = document.getElementById("form-tuts-wrap");
 
-  postAction('toggleFavorite', { userId: user.id, docId })
+  if (btnP && btnT) {
+    if (tab === "pubs") {
+      btnP.classList.add("active");
+      btnT.classList.remove("active");
+    } else {
+      btnT.classList.add("active");
+      btnP.classList.remove("active");
+    }
+  }
+
+  if (wrapP && wrapT) {
+    if (tab === "pubs") {
+      wrapP.classList.remove("hidden");
+      wrapT.classList.add("hidden");
+    } else {
+      wrapT.classList.remove("hidden");
+      wrapP.classList.add("hidden");
+    }
+  }
+
+  // cargar y renderizar lista
+  if (tab === "pubs") loadPublications(false);
+  else loadTutorials(false);
+}
+
+function loadPublications(force = false) {
+  if (!force && pubsCache && pubsCache.length > 0) {
+    if (studentsActiveTab === "pubs") renderStudentsList(pubsCache, "pubs");
+    return;
+  }
+  const container = document.getElementById("students-list-container");
+  if (studentsActiveTab === "pubs" && container) container.innerHTML = "<p>Cargando...</p>";
+
+  apiPost({ action: "getStudentPublications" })
     .then(json => {
-      if (json.result === 'success') {
-        userFavorites = Array.isArray(json.favoritos) ? json.favoritos.map(String) : [];
-        // si estamos en favoritos, refrescamos lista
-        if ((el('filter-cat')?.value || "") === 'favoritos') applyFilters();
-      }
+      pubsCache = (json && json.data) ? json.data : [];
+      if (studentsActiveTab === "pubs") renderStudentsList(pubsCache, "pubs");
     })
     .catch(err => {
       console.error(err);
-      // revertimos si falla
-      if (isActive) { btn.classList.add('fav-active'); btn.innerHTML = '♥'; }
-      else { btn.classList.remove('fav-active'); btn.innerHTML = '♡'; }
+      if (studentsActiveTab === "pubs" && container) container.innerHTML = "<p style='color:red;'>Error al cargar publicaciones.</p>";
     });
 }
 
-// ==========================================
-// TALLERES
-// ==========================================
-function loadAdminTalleresList() {
-  const container = el('admin-talleres-list');
+function loadTutorials(force = false) {
+  if (!force && tutsCache && tutsCache.length > 0) {
+    if (studentsActiveTab === "tuts") renderStudentsList(tutsCache, "tuts");
+    return;
+  }
+  const container = document.getElementById("students-list-container");
+  if (studentsActiveTab === "tuts" && container) container.innerHTML = "<p>Cargando...</p>";
+
+  apiPost({ action: "getStudentTutorials" })
+    .then(json => {
+      tutsCache = (json && json.data) ? json.data : [];
+      if (studentsActiveTab === "tuts") renderStudentsList(tutsCache, "tuts");
+    })
+    .catch(err => {
+      console.error(err);
+      if (studentsActiveTab === "tuts" && container) container.innerHTML = "<p style='color:red;'>Error al cargar tutoriales.</p>";
+    });
+}
+
+function renderStudentsList(items, type) {
+  const container = document.getElementById("students-list-container");
   if (!container) return;
 
-  container.innerHTML = '<p>Cargando talleres...</p>';
+  if (!items || items.length === 0) {
+    container.innerHTML = `<div class="empty-state-msg"><p>No hay ${type === "pubs" ? "publicaciones" : "tutoriales"} cargados.</p><small>Volvé más tarde.</small></div>`;
+    return;
+  }
 
-  postAction('getAllTalleres')
+  let html = '<ul class="simple-list">';
+  items.forEach(it => {
+    html += `
+      <li class="simple-item">
+        <h4>${escapeHtml(it.titulo || "")}</h4>
+        <div class="meta-row">
+          <span class="badge">${escapeHtml(it.fecha || "")}</span>
+          <a class="btn-download" href="${it.enlace}" target="_blank" rel="noopener">Abrir</a>
+        </div>
+        ${it.descripcion ? `<p>${escapeHtml(it.descripcion)}</p>` : ""}
+      </li>
+    `;
+  });
+  html += "</ul>";
+  container.innerHTML = html;
+}
+
+// --- TALLERES (ADMIN/LISTAS) ---
+function loadAdminTalleresList() {
+  const container = document.getElementById("admin-talleres-list");
+  if (container) container.innerHTML = "<p>Cargando talleres...</p>";
+
+  apiPost({ action: "getAllTalleres" })
     .then(json => {
-      const data = Array.isArray(json.data) ? json.data : [];
-      talleresAdminCache = data;
-
-      if (data.length === 0) {
-        container.innerHTML = '<p>No hay talleres creados.</p>';
+      if (!json.data || json.data.length === 0) {
+        if (container) container.innerHTML = "<p>No hay talleres creados.</p>";
         return;
       }
-
       let html = '<ul class="taller-list">';
-      data.forEach(t => {
-        const invitadosCount = Array.isArray(t.invitados) ? t.invitados.length : 0;
+      json.data.forEach(t => {
         html += `
           <li class="taller-item">
             <div class="taller-info">
-              <strong>${escapeHtml(t.titulo || "")}</strong> <small>(${escapeHtml(t.fechaTaller || "")})</small><br>
-              <span style="font-size:0.85rem; color:#666;">Invitados: ${invitadosCount}</span>
+              <strong>${escapeHtml(t.titulo)}</strong> <small>(${escapeHtml(t.fechaTaller)})</small><br>
+              <span style="font-size:0.85rem; color:#666;">Invitados: ${t.invitados ? t.invitados.length : 0}</span>
               <div style="margin-top:5px;">
-                ${t.link ? `<a href="${String(t.link)}" target="_blank" class="link-tag">Enlace Meet Activo</a>` : '<span class="no-link">Sin enlace</span>'}
+                ${t.link ? `<a href="${t.link}" target="_blank" class="link-tag">Enlace Meet Activo</a>` : '<span class="no-link">Sin enlace</span>'}
               </div>
             </div>
             <div class="taller-actions">
-              <button class="btn-sm" onclick="openAddParticipants(${Number(t.id)}, '${escapeQuotes(t.titulo || "")}')">👥 Asistentes</button>
-              <button class="btn-sm btn-secondary" onclick="openAddLink(${Number(t.id)})">🔗 Link</button>
-              ${el('modal-edit-material') ? `<button class="btn-sm" onclick="openEditMaterial(${Number(t.id)}, '${escapeQuotes(t.titulo || "")}')">📚 Material</button>` : ''}
+              <button class="btn-sm" onclick="openAddParticipants(${t.id}, '${escapeAttr(t.titulo)}')">👥 Asistentes</button>
+              <button class="btn-sm btn-secondary" onclick="openAddLink(${t.id})">🔗 Link</button>
             </div>
-          </li>`;
+          </li>
+        `;
       });
-      html += '</ul>';
-      container.innerHTML = html;
+      html += "</ul>";
+      if (container) container.innerHTML = html;
     })
     .catch(err => {
       console.error(err);
-      container.innerHTML = '<p style="color:red;">Error cargando talleres.</p>';
+      if (container) container.innerHTML = "<p style='color:red;'>Error al cargar talleres.</p>";
     });
 }
 
-function escapeQuotes(s) {
-  return String(s).replaceAll("'", "\\'").replaceAll('"', '\\"');
-}
-
 function loadDocentesForSelection(containerId) {
-  const container = el(containerId);
-  if (!container) return;
-
-  container.innerHTML = '<p>Cargando lista...</p>';
+  const container = document.getElementById(containerId);
+  if (container) container.innerHTML = "<p>Cargando lista...</p>";
 
   if (allDocentesCache.length > 0) {
     renderChecklist(allDocentesCache, containerId);
     return;
   }
 
-  postAction('getAllDocentesSimple')
+  apiPost({ action: "getAllDocentesSimple" })
     .then(json => {
-      allDocentesCache = Array.isArray(json.data) ? json.data : [];
+      allDocentesCache = json.data || [];
       renderChecklist(allDocentesCache, containerId);
     })
     .catch(err => {
       console.error(err);
-      container.innerHTML = '<p style="color:red;">Error cargando docentes.</p>';
+      if (container) container.innerHTML = "<p style='color:red;'>Error al cargar docentes.</p>";
     });
 }
 
 function renderChecklist(list, containerId, preselectedIds = []) {
-  const container = el(containerId);
+  const container = document.getElementById(containerId);
   if (!container) return;
 
   if (!list || list.length === 0) {
@@ -848,364 +784,223 @@ function renderChecklist(list, containerId, preselectedIds = []) {
     return;
   }
 
-  const pre = new Set((preselectedIds || []).map(String));
-
-  let html = '';
+  let html = "";
   list.forEach(d => {
-    const isChecked = pre.has(String(d.id)) ? 'checked' : '';
-    html += `<label class="checklist-item"><input type="checkbox" value="${String(d.id)}" ${isChecked}> ${escapeHtml(d.nombre || "")} <small>(DNI: ${escapeHtml(d.dni || "S/D")})</small></label>`;
+    const isChecked = preselectedIds.includes(String(d.id)) ? "checked" : "";
+    html += `<label class="checklist-item"><input type="checkbox" value="${d.id}" ${isChecked}> ${escapeHtml(d.nombre)} <small>(DNI: ${escapeHtml(d.dni)})</small></label>`;
   });
   container.innerHTML = html;
 
-  // contador solo para el create modal
-  const countSpan = el('count-selected');
-  if (containerId === 'docentes-checklist' && countSpan) {
-    const updateCount = () => { countSpan.innerText = String(container.querySelectorAll('input:checked').length); };
-    container.querySelectorAll('input').forEach(cb => cb.addEventListener('change', updateCount));
-    updateCount();
+  const countSpan = document.getElementById("count-selected");
+  if (containerId === "docentes-checklist" && countSpan) {
+    container.querySelectorAll("input").forEach(cb => {
+      cb.addEventListener("change", () => {
+        countSpan.innerText = container.querySelectorAll("input:checked").length;
+      });
+    });
   }
 }
 
 function openAddParticipants(id, titulo) {
   currentEditingTallerId = id;
+  document.getElementById("modal-admin-list-talleres").classList.add("hidden");
+  document.getElementById("modal-add-participants").classList.remove("hidden");
+  document.getElementById("edit-taller-subtitle").innerText = "Taller: " + titulo;
+  hideMessage(document.getElementById("add-part-msg"));
+  document.getElementById("add-docentes-checklist").innerHTML = "<p>Cargando...</p>";
 
-  el('modal-admin-list-talleres')?.classList.add('hidden');
-  el('modal-add-participants')?.classList.remove('hidden');
+  apiPost({ action: "getAllTalleres" })
+    .then(json => {
+      const taller = (json.data || []).find(t => t.id == id);
+      const invited = (taller && taller.invitados) ? taller.invitados : [];
 
-  el('edit-taller-subtitle').innerText = "Taller: " + titulo;
-  const msg = el('add-part-msg');
-  if (msg) { msg.innerText = ""; msg.classList.add('hidden'); }
-  const checklist = el('add-docentes-checklist');
-  if (checklist) checklist.innerHTML = "<p>Cargando...</p>";
-
-  // buscamos el taller en cache, si no existe lo recargamos
-  const t = talleresAdminCache.find(x => String(x.id) === String(id));
-  if (t) {
-    const invited = Array.isArray(t.invitados) ? t.invitados.map(String) : [];
-    if (allDocentesCache.length > 0) renderChecklist(allDocentesCache, 'add-docentes-checklist', invited);
-    else loadDocentesAndRenderAdd(invited);
-  } else {
-    postAction('getAllTalleres').then(json => {
-      talleresAdminCache = Array.isArray(json.data) ? json.data : [];
-      const taller = talleresAdminCache.find(x => String(x.id) === String(id));
-      const invited = Array.isArray(taller?.invitados) ? taller.invitados.map(String) : [];
-      if (allDocentesCache.length > 0) renderChecklist(allDocentesCache, 'add-docentes-checklist', invited);
-      else loadDocentesAndRenderAdd(invited);
+      if (allDocentesCache.length > 0) {
+        renderChecklist(allDocentesCache, "add-docentes-checklist", invited.map(String));
+      } else {
+        apiPost({ action: "getAllDocentesSimple" })
+          .then(j => {
+            allDocentesCache = j.data || [];
+            renderChecklist(allDocentesCache, "add-docentes-checklist", invited.map(String));
+          });
+      }
     });
-  }
-}
-
-function loadDocentesAndRenderAdd(invited) {
-  postAction('getAllDocentesSimple').then(json => {
-    allDocentesCache = Array.isArray(json.data) ? json.data : [];
-    renderChecklist(allDocentesCache, 'add-docentes-checklist', invited);
-  });
 }
 
 function openAddLink(id) {
   selectedTallerIdForLink = id;
-  el('modal-admin-list-talleres')?.classList.add('hidden');
-  el('modal-add-link')?.classList.remove('hidden');
-  if (el('meet-link-input')) el('meet-link-input').value = "";
+  document.getElementById("modal-admin-list-talleres").classList.add("hidden");
+  document.getElementById("modal-add-link").classList.remove("hidden");
+  document.getElementById("meet-link-input").value = "";
+}
+
+function filterChecklist(text, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const labels = container.querySelectorAll(".checklist-item");
+  const term = String(text || "").toLowerCase();
+  labels.forEach(lbl => {
+    const txt = lbl.innerText.toLowerCase();
+    lbl.style.display = txt.includes(term) ? "flex" : "none";
+  });
+}
+
+// --- DOCS DOCENTE ---
+function applyFilters() {
+  const term = document.getElementById("filter-search").value.toLowerCase();
+  const cat = document.getElementById("filter-cat").value;
+  const filtered = globalDocs.filter(doc => {
+    const matchesText = (doc.titulo || "").toLowerCase().includes(term) || (doc.resumen || "").toLowerCase().includes(term);
+    const matchesCat = cat === "todos" || doc.categoria === cat;
+    return matchesText && matchesCat;
+  });
+  renderDocsList(filtered);
+}
+
+function checkNewDocuments() {
+  apiPost({ action: "getDocuments" })
+    .then(json => {
+      const lastViewed = localStorage.getItem("last_docs_view_date");
+      const now = new Date();
+      let hasNew = false;
+
+      globalDocs = (json.data || []).map(d => {
+        const docDate = parseDate(d.fecha);
+        let isNew = false;
+        if (!lastViewed) {
+          const oneWeekAgo = new Date();
+          oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+          isNew = docDate > oneWeekAgo;
+        } else {
+          isNew = docDate > new Date(lastViewed);
+        }
+        if (isNew) hasNew = true;
+        return { ...d, isNew };
+      });
+
+      if (hasNew) document.getElementById("notification-badge")?.classList.remove("hidden");
+      localStorage.setItem("last_docs_view_date", now.toISOString());
+    })
+    .catch(err => console.error(err));
 }
 
 function loadMyTalleres(userId) {
-  const container = el('talleres-container');
-  if (!container) return;
+  const container = document.getElementById("talleres-container");
+  if (container) container.innerHTML = "<p>Buscando talleres...</p>";
 
-  container.innerHTML = '<p>Buscando talleres...</p>';
-
-  postAction('getMyTalleres', { userId })
+  apiPost({ action: "getMyTalleres", userId })
     .then(json => {
-      const data = Array.isArray(json.data) ? json.data : [];
-      myTalleresCache = data;
-
-      if (data.length === 0) {
-        container.innerHTML = `<div class="empty-state-msg"><p>No estás inscripto en talleres activos.</p></div>`;
+      if (!json.data || json.data.length === 0) {
+        if (container) container.innerHTML = `<div class="empty-state-msg"><p>No estás inscripto en talleres activos.</p></div>`;
         return;
       }
-
-      let html = '';
-      data.forEach(t => {
+      let html = "";
+      json.data.forEach(t => {
         html += `
-          <div class="card card-taller" onclick="showTallerInfo('${escapeQuotes(t.titulo || "")}', '${escapeQuotes(t.link || "")}', '${String(t.id)}')">
-            <h3>${escapeHtml(t.titulo || "")}</h3>
-            <p>📅 ${escapeHtml(t.fechaTaller || "")}</p>
+          <div class="card card-taller" onclick="showTallerInfo('${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}')">
+            <h3>${escapeHtml(t.titulo)}</h3>
+            <p>📅 ${escapeHtml(t.fechaTaller)}</p>
             ${t.link ? '<span class="badge-link">Enlace Disponible</span>' : ''}
-          </div>`;
+          </div>
+        `;
       });
-      container.innerHTML = html;
+      if (container) container.innerHTML = html;
     })
     .catch(err => {
       console.error(err);
-      container.innerHTML = '<p style="color:red;">Error cargando talleres.</p>';
+      if (container) container.innerHTML = "<p style='color:red;'>Error al cargar talleres.</p>";
     });
 }
 
-function showTallerInfo(titulo, link, tallerId) {
-  el('modal-taller-info')?.classList.remove('hidden');
-  el('info-taller-titulo').innerText = titulo;
-
-  const actionContainer = el('taller-action-container');
-  if (actionContainer) {
-    if (link) {
-      actionContainer.innerHTML = `<a href="${link}" target="_blank" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
-    } else {
-      actionContainer.innerHTML = `<p style="color:#777; font-style:italic;">El enlace de la reunión aún no está disponible.</p>`;
-    }
-  }
-
-  // Material del taller (si existe contenedor en tu HTML)
-  const materialContainer = el('taller-material-container');
-  if (materialContainer) {
-    const taller = myTalleresCache.find(t => String(t.id) === String(tallerId));
-    const materialIds = Array.isArray(taller?.materiales) ? taller.materiales.map(String) : []; // backend debe devolver 'materiales' o similar
-    renderTallerMaterial(materialContainer, materialIds);
+function showTallerInfo(titulo, link) {
+  document.getElementById("modal-taller-info").classList.remove("hidden");
+  document.getElementById("info-taller-titulo").innerText = titulo;
+  const actionContainer = document.getElementById("taller-action-container");
+  if (link) {
+    actionContainer.innerHTML = `<a href="${link}" target="_blank" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
+  } else {
+    actionContainer.innerHTML = `<p style="color:#777; font-style:italic;">El enlace de la reunión aún no está disponible.</p>`;
   }
 }
 
-function renderTallerMaterial(container, materialIds) {
+function renderDocsList(docs) {
+  const container = document.getElementById("docs-list-container");
   if (!container) return;
 
-  if (!materialIds || materialIds.length === 0) {
-    container.innerHTML = `<div class="empty-state-msg"><p>No hay material asignado para este taller.</p></div>`;
+  if (!docs || docs.length === 0) {
+    container.innerHTML = "<p>No se encontraron documentos.</p>";
     return;
   }
 
-  const docsById = new Map((globalDocs || []).map(d => [String(d.id), d]));
-  const items = materialIds.map(id => docsById.get(String(id))).filter(Boolean);
-
-  if (items.length === 0) {
-    container.innerHTML = `<div class="empty-state-msg"><p>No se encontró el material en Documentación.</p></div>`;
-    return;
-  }
-
-  let html = '<ul class="material-list">';
-  items.forEach(doc => {
-    html += `
-      <li class="material-item">
-        <div>
-          <strong>${escapeHtml(doc.titulo || "")}</strong><br>
-          <small>${escapeHtml(doc.categoria || "")} • ${escapeHtml(formatDateDisplay(doc.fecha))}</small>
-        </div>
-        <div>
-          <a href="${String(doc.url || "#")}" target="_blank" class="btn-download">Abrir</a>
-        </div>
-      </li>`;
-  });
-  html += '</ul>';
-  container.innerHTML = html;
-}
-
-// Material selection helpers (solo si existen en HTML)
-function loadDocsForSelectionIfExists(containerId) {
-  const container = el(containerId);
-  if (!container) return;
-  container.innerHTML = '<p>Cargando documentación...</p>';
-  if (globalDocs && globalDocs.length > 0) {
-    renderDocsChecklist(globalDocs, containerId);
-    return;
-  }
-  refreshDocuments().then(docs => renderDocsChecklist(docs, containerId));
-}
-
-function renderDocsChecklist(docs, containerId, preselectedIds = []) {
-  const container = el(containerId);
-  if (!container) return;
-  if (!docs || docs.length === 0) { container.innerHTML = "<p>No hay documentación cargada.</p>"; return; }
-
-  const pre = new Set((preselectedIds || []).map(String));
-  const sorted = [...docs].sort((a, b) => String(a.titulo || "").localeCompare(String(b.titulo || "")));
-
-  let html = '';
-  sorted.forEach(d => {
-    const checked = pre.has(String(d.id)) ? 'checked' : '';
-    html += `<label class="checklist-item"><input type="checkbox" value="${String(d.id)}" ${checked}> ${escapeHtml(d.titulo || "")} <small>(${escapeHtml(d.categoria || "")})</small></label>`;
-  });
-  container.innerHTML = html;
-}
-
-function filterDocsChecklist(text, containerId) {
-  const container = el(containerId);
-  if (!container) return;
-
-  const labels = container.querySelectorAll('.checklist-item');
-  const term = String(text || "").toLowerCase();
-
-  labels.forEach(lbl => {
-    const txt = lbl.innerText.toLowerCase();
-    lbl.style.display = txt.includes(term) ? 'flex' : 'none';
-  });
-}
-
-function openEditMaterial(tallerId, titulo) {
-  currentEditingMaterialTallerId = tallerId;
-
-  el('modal-admin-list-talleres')?.classList.add('hidden');
-  el('modal-edit-material')?.classList.remove('hidden');
-  el('material-taller-subtitle') && (el('material-taller-subtitle').innerText = "Taller: " + titulo);
-
-  const msg = el('material-msg');
-  if (msg) { msg.innerText = ""; msg.classList.add('hidden'); msg.style.color = ""; }
-
-  const checklist = el('material-docs-checklist');
-  if (checklist) checklist.innerHTML = "<p>Cargando...</p>";
-
-  // Preselección: si el backend devuelve materiales en getAllTalleres
-  const taller = talleresAdminCache.find(t => String(t.id) === String(tallerId));
-  const preselected = Array.isArray(taller?.materiales) ? taller.materiales.map(String) : [];
-
-  loadDocsForSelectionIfExists('material-docs-checklist');
-  // Una vez cargado, re-render con preselected (para no depender del orden de promesas)
-  refreshDocuments().then(docs => renderDocsChecklist(docs, 'material-docs-checklist', preselected));
-}
-
-// ==========================================
-// APPS / ESTUDIANTES (opcionales si tu HTML los tiene)
-// ==========================================
-function loadApps(force = false) {
-  const container = el('apps-list-container');
-  if (!container) return;
-
-  if (!force && allAppsCache.length > 0) {
-    renderAppsList(allAppsCache);
-    return;
-  }
-
-  container.innerHTML = "<p>Cargando...</p>";
-  postAction('getApps')
-    .then(json => {
-      allAppsCache = Array.isArray(json.data) ? json.data : [];
-      renderAppsList(allAppsCache);
-    })
-    .catch(err => {
-      console.error(err);
-      container.innerHTML = "<p style='color:red;'>Error cargando aplicaciones.</p>";
-    });
-}
-
-function renderAppsList(items) {
-  const container = el('apps-list-container');
-  if (!container) return;
-
-  if (!items || items.length === 0) {
-    container.innerHTML = `<div class="empty-state-msg"><p>No hay aplicaciones cargadas.</p></div>`;
-    return;
-  }
-
-  let html = '<ul>';
-  items.forEach(a => {
+  let html = "<ul>";
+  docs.forEach(doc => {
+    const isFav = userFavorites.includes(String(doc.id));
+    const heartClass = isFav ? "fav-btn fav-active" : "fav-btn";
+    const heartSymbol = isFav ? "♥" : "♡";
     html += `
       <li class="doc-item">
         <div class="doc-info">
-          <strong>${escapeHtml(a.nombre || "")}</strong><br>
-          <small>${escapeHtml(a.fecha || "")}</small>
-          <p>${escapeHtml(a.funciones || "")}</p>
+          <strong>${escapeHtml(doc.titulo)}</strong>
+          ${doc.isNew ? '<span class="badge-new">NUEVO</span>' : ''}
+          <br>
+          <small>(${escapeHtml(doc.numero || "S/N")} - ${formatDateDisplay(doc.fecha)})</small><br>
+          <span class="badge">${escapeHtml(doc.categoria)}</span>
+          <p>${escapeHtml(doc.resumen || "")}</p>
         </div>
         <div class="doc-actions">
-          <a href="${String(a.enlace || "#")}" target="_blank" class="btn-download">Abrir</a>
+          <button class="${heartClass}" onclick="toggleDocFavorite('${doc.id}', this)" title="Marcar Favorito">${heartSymbol}</button>
+          <a href="${doc.url}" target="_blank" class="btn-download" rel="noopener">Ver PDF</a>
         </div>
-      </li>`;
+      </li>
+    `;
   });
-  html += '</ul>';
+  html += "</ul>";
   container.innerHTML = html;
 }
 
-function setStudentTab(tab) {
-  // opcional: si tenés pestañas en HTML
-  el('student-tab-publicaciones')?.classList.toggle('active', tab === 'publicaciones');
-  el('student-tab-tutoriales')?.classList.toggle('active', tab === 'tutoriales');
-  el('student-publications-panel') && (el('student-publications-panel').style.display = tab === 'publicaciones' ? 'block' : 'none');
-  el('student-tutorials-panel') && (el('student-tutorials-panel').style.display = tab === 'tutoriales' ? 'block' : 'none');
-}
+function toggleDocFavorite(docId, btn) {
+  const user = JSON.parse(sessionStorage.getItem("db_user"));
+  const isActive = btn.classList.contains("fav-active");
+  if (isActive) { btn.classList.remove("fav-active"); btn.innerHTML = "♡"; }
+  else { btn.classList.add("fav-active"); btn.innerHTML = "♥"; }
 
-function loadStudentPublications(force = false) {
-  const container = el('student-publications-list');
-  if (!container) return;
-
-  if (!force && allStudentPublications.length > 0) {
-    renderStudentItems(container, allStudentPublications);
-    return;
-  }
-
-  container.innerHTML = "<p>Cargando...</p>";
-  postAction('getStudentPublications')
+  apiPost({ action: "toggleFavorite", userId: user.id, docId })
     .then(json => {
-      allStudentPublications = Array.isArray(json.data) ? json.data : [];
-      renderStudentItems(container, allStudentPublications);
+      if (json.result === "success") userFavorites = json.favoritos;
     })
-    .catch(err => {
-      console.error(err);
-      container.innerHTML = "<p style='color:red;'>Error cargando publicaciones.</p>";
-    });
+    .catch(err => console.error(err));
 }
 
-function loadStudentTutorials(force = false) {
-  const container = el('student-tutorials-list');
-  if (!container) return;
-
-  if (!force && allStudentTutorials.length > 0) {
-    renderStudentItems(container, allStudentTutorials);
-    return;
+// --- UTILIDADES FECHA + ESCAPE ---
+function parseDate(dateInput) {
+  if (!dateInput) return new Date(0);
+  let str = String(dateInput).trim();
+  if (str.includes("T")) str = str.split("T")[0];
+  if (str.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+    const parts = str.split("/");
+    return new Date(parts[2], parts[1] - 1, parts[0]);
   }
-
-  container.innerHTML = "<p>Cargando...</p>";
-  postAction('getStudentTutorials')
-    .then(json => {
-      allStudentTutorials = Array.isArray(json.data) ? json.data : [];
-      renderStudentItems(container, allStudentTutorials);
-    })
-    .catch(err => {
-      console.error(err);
-      container.innerHTML = "<p style='color:red;'>Error cargando tutoriales.</p>";
-    });
-}
-
-function renderStudentItems(container, items) {
-  if (!container) return;
-
-  if (!items || items.length === 0) {
-    container.innerHTML = `<div class="empty-state-msg"><p>No hay elementos cargados.</p></div>`;
-    return;
+  if (str.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+    const parts = str.split("-");
+    return new Date(parts[0], parts[1] - 1, parts[2]);
   }
-
-  let html = '<ul>';
-  items.forEach(it => {
-    html += `
-      <li class="doc-item">
-        <div class="doc-info">
-          <strong>${escapeHtml(it.titulo || "")}</strong><br>
-          <small>${escapeHtml(it.fecha || "")}</small>
-          <p>${escapeHtml(it.descripcion || "")}</p>
-        </div>
-        <div class="doc-actions">
-          <a href="${String(it.enlace || "#")}" target="_blank" class="btn-download">Abrir</a>
-        </div>
-      </li>`;
-  });
-  html += '</ul>';
-  container.innerHTML = html;
+  return new Date(str);
 }
 
-// ==========================================
-// UTIL: filtros checklist docentes
-// ==========================================
-function filterChecklist(text, containerId) {
-  const container = el(containerId);
-  if (!container) return;
-
-  const labels = container.querySelectorAll('.checklist-item');
-  const term = String(text || "").toLowerCase();
-
-  labels.forEach(lbl => {
-    const txt = lbl.innerText.toLowerCase();
-    lbl.style.display = txt.includes(term) ? 'flex' : 'none';
-  });
+function formatDateDisplay(dateInput) {
+  const d = parseDate(dateInput);
+  return d.toLocaleDateString("es-AR");
 }
 
-// Exponer funciones usadas en inline onclick
-window.openAddParticipants = openAddParticipants;
-window.openAddLink = openAddLink;
-window.toggleDocFavorite = toggleDocFavorite;
-window.showTallerInfo = showTallerInfo;
-window.openEditMaterial = openEditMaterial;
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function escapeAttr(str) {
+  // para meter dentro de comillas simples
+  return String(str ?? "").replace(/'/g, "\\'");
+}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Campus Docentes Brown</title>
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -23,7 +23,7 @@
     </div>
 
     <div id="app-container" style="display: none;">
-        
+
         <header id="main-header" class="hidden">
             <div class="header-left">
                 <div class="logo">DB</div>
@@ -59,7 +59,7 @@
         </section>
 
         <section id="dashboard-view" class="view-section hidden">
-            
+
             <div id="dash-administrador" class="role-dash hidden">
                 <h2>Panel de Administración</h2>
                 <div class="cards-container">
@@ -69,13 +69,25 @@
                             <p>Administrar altas, bajas y roles en la hoja maestra.</p>
                         </div>
                     </a>
+
                     <div class="card" id="btn-admin-docs">
                         <h3>Documentos</h3>
                         <p>Subir normativas, actas y material PDF.</p>
                     </div>
+
                     <div class="card" id="btn-admin-talleres">
                         <h3>Talleres</h3>
                         <p>Gestionar cronograma y participantes.</p>
+                    </div>
+
+                    <div class="card" id="btn-admin-apps">
+                        <h3>Aplicaciones</h3>
+                        <p>Cargar apps recomendadas y utilidades.</p>
+                    </div>
+
+                    <div class="card" id="btn-admin-estudiantes">
+                        <h3>Estudiantes</h3>
+                        <p>Publicaciones y tutoriales de interés.</p>
                     </div>
                 </div>
             </div>
@@ -90,12 +102,18 @@
                         </div>
                         <p>Acceder a normativas y comunicados oficiales.</p>
                     </div>
+
+                    <div class="card" id="btn-view-apps">
+                        <h3>Aplicaciones</h3>
+                        <p>Herramientas recomendadas por Docentes Brown.</p>
+                    </div>
+
                     <div class="card" id="btn-view-profile">
                         <h3>Mis Datos Personales</h3>
                         <p>Ver y actualizar información de contacto.</p>
                     </div>
                 </div>
-                
+
                 <h3 class="section-title" style="margin-top: 2rem;">Mis Talleres</h3>
                 <div id="talleres-container" class="cards-container">
                     <p style="color:#666; font-size:0.9rem;">Cargando talleres...</p>
@@ -103,24 +121,31 @@
             </div>
 
             <div id="dash-estudiante" class="role-dash hidden">
-                <div class="construction-container">
-                    <img src="https://illustrations.popsy.co/amber/under-construction.svg" alt="En construcción" class="construction-img">
-                    
-                    <h2>Perfil de Estudiante</h2>
-                    <p class="construction-text">¡Estamos trabajando para ti!</p>
-                    <p class="construction-subtext">Muy pronto encontrarás aquí tus materiales de estudio, inscripción a talleres y novedades.</p>
-                    
-                    <div class="construction-badge">EN CONSTRUCCIÓN</div>
+                <h2>Panel Estudiante</h2>
+                <div class="cards-container">
+                    <div class="card" id="btn-stu-publicaciones">
+                        <h3>Publicaciones de Interés</h3>
+                        <p>Lecturas recomendadas, comunicados y novedades.</p>
+                    </div>
+                    <div class="card" id="btn-stu-tutoriales">
+                        <h3>Tutoriales de Interés</h3>
+                        <p>Guías prácticas, videos y recursos para estudiar.</p>
+                    </div>
+                    <div class="card" id="btn-view-apps-est">
+                        <h3>Aplicaciones</h3>
+                        <p>Herramientas útiles para tu formación.</p>
+                    </div>
                 </div>
             </div>
         </section>
     </div>
 
+    <!-- REGISTRO -->
     <div id="register-modal" class="modal hidden">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
             <h2 id="register-title">Solicitud de Alta</h2>
-            
+
             <form id="register-form">
                 <div class="input-group">
                     <label>Nombre Completo</label>
@@ -168,6 +193,7 @@
         </div>
     </div>
 
+    <!-- ADMIN: SUBIR DOCS -->
     <div id="modal-upload-docs" class="modal hidden">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
@@ -207,6 +233,7 @@
         </div>
     </div>
 
+    <!-- ADMIN: TALLERES -->
     <div id="modal-admin-list-talleres" class="modal hidden">
         <div class="modal-content modal-lg">
             <span class="close-modal">&times;</span>
@@ -233,7 +260,7 @@
                     <label>Fecha</label>
                     <input type="date" id="taller-fecha" required>
                 </div>
-                
+
                 <div class="checklist-section">
                     <label>Seleccionar Docentes Invitados (<span id="count-selected">0</span>)</label>
                     <input type="text" id="search-docente-input" placeholder="Buscar docente..." class="search-input-sm">
@@ -241,14 +268,6 @@
                         <p>Cargando docentes...</p>
                     </div>
                 </div>
-                <div class="checklist-section" style="margin-top: 1rem;">
-                    <label>Material de Estudio (Documentación)</label>
-                    <input type="text" id="search-docs-input" placeholder="Buscar material..." class="search-input-sm">
-                    <div id="docs-checklist" class="checklist-container">
-                        <p>Cargando documentación...</p>
-                    </div>
-                </div>
-
 
                 <button type="submit" class="btn-primary" style="margin-top:1rem;">Crear Taller</button>
                 <p id="taller-msg" class="message-box hidden"></p>
@@ -261,10 +280,10 @@
             <span class="close-modal-btn" style="float:right; cursor:pointer;">&times;</span>
             <h2>Editar Participantes</h2>
             <p id="edit-taller-subtitle" style="margin-bottom:10px; color:#666;"></p>
-            
+
             <input type="text" id="search-add-input" placeholder="Buscar..." class="search-input-sm">
             <div id="add-docentes-checklist" class="checklist-container"></div>
-            
+
             <button id="btn-confirm-add-participants" class="btn-primary" style="margin-top:1rem;">Guardar Cambios</button>
             <p id="add-part-msg" class="message-box hidden"></p>
         </div>
@@ -282,32 +301,14 @@
         </div>
     </div>
 
-    
-    <!-- ADMIN: EDITAR MATERIAL DE ESTUDIO -->
-    <div id="modal-edit-material" class="modal hidden">
-        <div class="modal-content">
-            <span class="close-modal-btn" style="float:right; cursor:pointer;">&times;</span>
-            <h2>Editar Material de Estudio</h2>
-            <p id="material-subtitle" style="margin-bottom:10px; color:#666;"></p>
-
-            <input type="text" id="search-material-input" placeholder="Buscar material..." class="search-input-sm">
-            <div id="material-docs-checklist" class="checklist-container">
-                <p>Cargando documentación...</p>
-            </div>
-
-            <button id="btn-confirm-material" class="btn-primary" style="margin-top:1rem;">Guardar Material</button>
-            <p id="material-msg" class="message-box hidden"></p>
-        </div>
-    </div>
-
-<div id="modal-view-docs" class="modal hidden">
+    <!-- DOCENTE: VER DOCS -->
+    <div id="modal-view-docs" class="modal hidden">
         <div class="modal-content modal-lg">
             <span class="close-modal">&times;</span>
             <h2>Documentación Oficial</h2>
             <div class="filters-row">
                 <input type="text" id="filter-search" placeholder="Buscar por título...">
                 <select id="filter-cat">
-                    <option value="favoritos">⭐ Favoritos</option>
                     <option value="todos">Todas las Categorías</option>
                     <option>Normativas</option>
                     <option>Comunicados</option>
@@ -322,6 +323,111 @@
         </div>
     </div>
 
+    <!-- APLICACIONES: (admin carga / todos ven) -->
+    <div id="modal-apps" class="modal hidden">
+        <div class="modal-content modal-lg">
+            <span class="close-modal">&times;</span>
+            <div class="modal-header-row">
+                <h2>Aplicaciones</h2>
+                <span class="badge-soft" id="apps-role-badge">LISTA</span>
+            </div>
+
+            <div id="apps-admin-form" class="admin-block hidden">
+                <h3 style="margin-top:0;">Cargar nueva aplicación</h3>
+                <form id="form-create-app">
+                    <div class="row-inputs">
+                        <div class="input-group">
+                            <label>Nombre</label>
+                            <input type="text" id="app-name" required placeholder="Ej: Calculadora Docente">
+                        </div>
+                        <div class="input-group">
+                            <label>Enlace directo</label>
+                            <input type="url" id="app-link" required placeholder="https://...">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Funciones (breve)</label>
+                        <textarea id="app-functions" rows="3" placeholder="Qué hace / para qué sirve"></textarea>
+                    </div>
+                    <button type="submit" class="btn-primary">Guardar Aplicación</button>
+                    <p id="app-msg" class="message-box hidden"></p>
+                </form>
+                <hr class="divider" style="margin:1rem 0;">
+            </div>
+
+            <div id="apps-list-container" class="list-container">
+                <p>Cargando...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ESTUDIANTES: admin carga / estudiantes ven -->
+    <div id="modal-estudiantes" class="modal hidden">
+        <div class="modal-content modal-lg">
+            <span class="close-modal">&times;</span>
+            <div class="modal-header-row">
+                <h2>Estudiantes</h2>
+                <div class="pill-tabs">
+                    <button class="pill-tab active" id="tab-pubs">Publicaciones</button>
+                    <button class="pill-tab" id="tab-tuts">Tutoriales</button>
+                </div>
+            </div>
+
+            <div id="students-admin-forms" class="admin-block hidden">
+                <div id="form-pubs-wrap">
+                    <h3 style="margin-top:0;">Cargar publicación</h3>
+                    <form id="form-create-publicacion">
+                        <div class="row-inputs">
+                            <div class="input-group">
+                                <label>Título</label>
+                                <input type="text" id="pub-title" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Enlace</label>
+                                <input type="url" id="pub-link" required placeholder="https://...">
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Descripción</label>
+                            <textarea id="pub-desc" rows="3"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary">Guardar Publicación</button>
+                        <p id="pub-msg" class="message-box hidden"></p>
+                    </form>
+                    <hr class="divider" style="margin:1rem 0;">
+                </div>
+
+                <div id="form-tuts-wrap" class="hidden">
+                    <h3 style="margin-top:0;">Cargar tutorial</h3>
+                    <form id="form-create-tutorial">
+                        <div class="row-inputs">
+                            <div class="input-group">
+                                <label>Título</label>
+                                <input type="text" id="tut-title" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Enlace</label>
+                                <input type="url" id="tut-link" required placeholder="https://...">
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Descripción</label>
+                            <textarea id="tut-desc" rows="3"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary">Guardar Tutorial</button>
+                        <p id="tut-msg" class="message-box hidden"></p>
+                    </form>
+                    <hr class="divider" style="margin:1rem 0;">
+                </div>
+            </div>
+
+            <div id="students-list-container" class="list-container">
+                <p>Cargando...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- PERFIL -->
     <div id="modal-profile" class="modal hidden">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
@@ -357,6 +463,7 @@
         </div>
     </div>
 
+    <!-- TALLER INFO -->
     <div id="modal-taller-info" class="modal hidden">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
@@ -364,7 +471,6 @@
             <div class="info-box">
                 <p id="info-taller-status">Ud. está inscripto en este taller.</p>
                 <div id="taller-action-container" style="margin-top:1rem;"></div>
-                <div id="taller-material-container" style="margin-top:1rem;"></div>
             </div>
             <button class="btn-primary close-modal-btn" style="margin-top:1rem;">Cerrar</button>
         </div>
