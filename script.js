@@ -1,5 +1,5 @@
 // --- CONFIGURACIÓN ---
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4fbq5XjHnqc_Cmw3kQ-JXrOT9QifRMO3zjZQA6GNDCCkR66Wa6OKBkSy_azXMd_Dc7w/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzm4PKtttlamu3mCWi6HRDkflThXS8Dx9UNMx3TIXc3q3MI_aDETFCthtyg6gGpoPnE9Q/exec";
 const WHATSAPP_NUMBER = "5491153196358"; 
 
 // --- VARIABLES GLOBALES ---
