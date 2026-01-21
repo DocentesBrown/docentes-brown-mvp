@@ -564,7 +564,6 @@ function setupEventListeners() {
       });
   });
 
-  });
 
   // BUSCADORES checklist
   document.getElementById("search-docente-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "docentes-checklist"));
