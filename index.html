@@ -241,14 +241,14 @@
                         <p>Cargando docentes...</p>
                     </div>
                 </div>
-
-                <div class="checklist-section" style="margin-top:1rem;">
-                    <label>Seleccionar Material de Estudio</label>
-                    <input type="text" id="search-docs-input" placeholder="Buscar documento..." class="search-input-sm">
+                <div class="checklist-section" style="margin-top: 1rem;">
+                    <label>Material de Estudio (Documentación)</label>
+                    <input type="text" id="search-docs-input" placeholder="Buscar material..." class="search-input-sm">
                     <div id="docs-checklist" class="checklist-container">
                         <p>Cargando documentación...</p>
                     </div>
                 </div>
+
 
                 <button type="submit" class="btn-primary" style="margin-top:1rem;">Crear Taller</button>
                 <p id="taller-msg" class="message-box hidden"></p>
@@ -268,22 +268,7 @@
             <button id="btn-confirm-add-participants" class="btn-primary" style="margin-top:1rem;">Guardar Cambios</button>
             <p id="add-part-msg" class="message-box hidden"></p>
         </div>
-    
-    <div id="modal-edit-material" class="modal hidden">
-        <div class="modal-content">
-            <span class="close-modal-btn" style="float:right; cursor:pointer;">&times;</span>
-            <h2>Editar Material de Estudio</h2>
-            <p id="edit-material-subtitle" style="margin-bottom:10px; color:#666;"></p>
-
-            <input type="text" id="search-material-input" placeholder="Buscar documento..." class="search-input-sm">
-            <div id="material-docs-checklist" class="checklist-container"></div>
-
-            <button id="btn-confirm-material" class="btn-primary" style="margin-top:1rem;">Guardar Material</button>
-            <p id="material-msg" class="message-box hidden"></p>
-        </div>
     </div>
-
-</div>
 
     <div id="modal-add-link" class="modal hidden">
         <div class="modal-content sm-content">
@@ -297,7 +282,25 @@
         </div>
     </div>
 
-    <div id="modal-view-docs" class="modal hidden">
+    
+    <!-- ADMIN: EDITAR MATERIAL DE ESTUDIO -->
+    <div id="modal-edit-material" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal-btn" style="float:right; cursor:pointer;">&times;</span>
+            <h2>Editar Material de Estudio</h2>
+            <p id="material-subtitle" style="margin-bottom:10px; color:#666;"></p>
+
+            <input type="text" id="search-material-input" placeholder="Buscar material..." class="search-input-sm">
+            <div id="material-docs-checklist" class="checklist-container">
+                <p>Cargando documentación...</p>
+            </div>
+
+            <button id="btn-confirm-material" class="btn-primary" style="margin-top:1rem;">Guardar Material</button>
+            <p id="material-msg" class="message-box hidden"></p>
+        </div>
+    </div>
+
+<div id="modal-view-docs" class="modal hidden">
         <div class="modal-content modal-lg">
             <span class="close-modal">&times;</span>
             <h2>Documentación Oficial</h2>

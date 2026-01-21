@@ -217,79 +217,52 @@ body { font-family: var(--font); background-color: var(--bg-gray); color: var(--
 }
 
 
-/* ====== NUEVO: Pestañas / Pills ====== */
-.pill-tabs{
-  display:flex;
-  gap:10px;
-  align-items:center;
-}
-.pill-tab{
-  border:1px solid rgba(36,73,110,.25);
-  background:#fff;
-  padding:8px 12px;
-  border-radius:999px;
-  cursor:pointer;
-  font-weight:700;
-  transition:all .15s ease;
-}
-.pill-tab:hover{ transform: translateY(-1px); }
-.pill-tab.active{
-  background: var(--primary);
-  color:#fff;
-  border-color: var(--primary);
+/* INPUT BUSCADOR CHICO */
+.search-input-sm{
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  margin: 8px 0 10px 0;
+  font-family: inherit;
 }
 
-.badge-soft{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:6px 10px;
-  border-radius:999px;
-  background: rgba(61,143,176,.12);
-  color: var(--primary);
-  font-weight:800;
-  font-size:.75rem;
-  letter-spacing:.5px;
-}
-
-.admin-block{
+/* MATERIALES EN TALLER (DOCENTE) */
+.material-box{
+  margin-top: 12px;
   background: rgba(243,239,220,.35);
   border: 1px dashed rgba(36,73,110,.25);
   padding: 12px;
   border-radius: 14px;
 }
-
-/* ====== Listas tipo “tarjeta” ====== */
-.simple-list{
-  list-style:none;
-  padding:0;
-  margin:0;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
+.material-box h4{
+  margin: 0 0 8px 0;
+  color: var(--primary);
 }
-.simple-item{
-  border:1px solid rgba(36,73,110,.15);
-  background:#fff;
-  border-radius:14px;
-  padding:12px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+.material-list{
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.simple-item h4{
-  margin:0 0 4px 0;
+.material-item{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid rgba(36,73,110,.15);
 }
-.simple-item p{
-  margin:6px 0 0 0;
-  color:#555;
-  font-size:.95rem;
+.material-item .title{
+  font-weight: 700;
+  color: var(--primary);
+  font-size: .95rem;
 }
-.simple-item .meta-row{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  align-items:center;
-  margin-top:8px;
-}
-.simple-item .meta-row a{
-  text-decoration:none;
+.material-item .meta{
+  font-size: .8rem;
+  color: #666;
 }
