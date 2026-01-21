@@ -532,9 +532,7 @@ function setupEventListeners() {
         showMessage(msg, "Error de conexión.", "red");
       });
   });
-  });
 
-  });
 
   // BUSCADORES checklist
   document.getElementById("search-docente-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "docentes-checklist"));
