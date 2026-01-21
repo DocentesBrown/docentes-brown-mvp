@@ -175,12 +175,22 @@ function saveTallerParticipants(ss, data) {
   return response({ "result": "error", "message": "Taller no encontrado" });
 }
 
+function ensureTalleresHeaders(sheet) {
+  // Esperado: 1 ID,2 Fecha,3 Titulo,4 Fecha_Taller,5 Invitados_IDs,6 Enlace_Meet,7 Docs_IDs
+  if (sheet.getLastColumn() < 7) {
+    sheet.getRange(1, 7).setValue("Docs_IDs");
+  }
+}
+
 function createTaller(ss, data) {
-  var sheet = getOrCreateSheet(ss, 'Talleres', ['ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller', 'Invitados_IDs', 'Enlace_Meet']);
+  var sheet = getOrCreateSheet(ss, 'Talleres', ['ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller', 'Invitados_IDs', 'Enlace_Meet', 'Docs_IDs']);
+  ensureTalleresHeaders(sheet);
+
   var newId = getLastId(sheet) + 1;
   var fechaHoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
   var invitadosString = JSON.stringify(data.invitados || []);
-  sheet.appendRow([newId, fechaHoy, data.titulo, data.fechaTaller, invitadosString, ""]);
+  var docsIdsString = JSON.stringify(data.docsIds || []);
+  sheet.appendRow([newId, fechaHoy, data.titulo, data.fechaTaller, invitadosString, "", docsIdsString]);
   return response({ "result": "success", "message": "Taller creado correctamente" });
 }
 
@@ -188,17 +198,22 @@ function getAllTalleres(ss) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "success", "data": [] });
 
+  ensureTalleresHeaders(sheet);
+
   var rows = sheet.getDataRange().getValues();
   var talleres = [];
   for (var i = 1; i < rows.length; i++) {
     var invitados = [];
     try { invitados = JSON.parse(rows[i][4]); } catch(e){}
+    var docsIds = [];
+    try { docsIds = JSON.parse(rows[i][6] || "[]"); } catch(e){}
     talleres.push({
       id: rows[i][0],
       titulo: rows[i][2],
       fechaTaller: cleanDate(rows[i][3]),
       invitados: invitados,
-      link: rows[i][5] || ""
+      link: rows[i][5] || "",
+      docsIds: docsIds
     });
   }
   return response({ "result": "success", "data": talleres });
@@ -208,6 +223,8 @@ function getDocenteTalleres(ss, userId) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "success", "data": [] });
 
+  ensureTalleresHeaders(sheet);
+
   var rows = sheet.getDataRange().getValues();
   var misTalleres = [];
   for (var i = 1; i < rows.length; i++) {
@@ -216,11 +233,14 @@ function getDocenteTalleres(ss, userId) {
       var listaInvitados = JSON.parse(invitadosRaw);
       var estaInvitado = listaInvitados.some(function(id) { return String(id) === String(userId); });
       if (estaInvitado) {
+        var docsIds = [];
+        try { docsIds = JSON.parse(rows[i][6] || "[]"); } catch(e){}
         misTalleres.push({
           id: rows[i][0],
           titulo: rows[i][2],
           fechaTaller: cleanDate(rows[i][3]),
-          link: rows[i][5] || ""
+          link: rows[i][5] || "",
+          docsIds: docsIds
         });
       }
     } catch (e) {}
@@ -232,11 +252,20 @@ function updateTallerLink(ss, data) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "error", "message": "Hoja Talleres no existe" });
 
+  ensureTalleresHeaders(sheet);
+
   var rows = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] == data.tallerId) {
-      sheet.getRange(i + 1, 6).setValue(data.link);
-      return response({ "result": "success", "message": "Enlace guardado." });
+      // Solo actualiza link si viene en request
+      if (Object.prototype.hasOwnProperty.call(data, "link")) {
+        sheet.getRange(i + 1, 6).setValue(data.link);
+      }
+      // Solo actualiza docsIds si viene en request
+      if (Object.prototype.hasOwnProperty.call(data, "docsIds")) {
+        sheet.getRange(i + 1, 7).setValue(JSON.stringify(data.docsIds || []));
+      }
+      return response({ "result": "success", "message": "Actualizado." });
     }
   }
   return response({ "result": "error", "message": "Taller no encontrado" });
@@ -522,6 +551,13 @@ function getOrCreateSheet(ss, name, headers) {
     sheet = ss.insertSheet(name);
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  } else {
+    // Si existe y le faltan columnas, no borramos nada; solo aseguramos headers mínimos cuando corresponde
+    if (name === 'Talleres' && headers && headers.length) {
+      if (sheet.getLastColumn() < headers.length) {
+        sheet.getRange(1, sheet.getLastColumn() + 1, 1, headers.length - sheet.getLastColumn()).setValues([headers.slice(sheet.getLastColumn())]);
+      }
+    }
   }
   return sheet;
 }

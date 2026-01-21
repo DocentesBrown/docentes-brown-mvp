@@ -293,3 +293,24 @@ body { font-family: var(--font); background-color: var(--bg-gray); color: var(--
 .simple-item .meta-row a{
   text-decoration:none;
 }
+
+
+/* Pills para documentación en talleres */
+.pill-wrap{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.pill-link{
+  display:inline-block;
+  padding:8px 10px;
+  border-radius:999px;
+  background: rgba(61,143,176,0.12);
+  border: 1px solid rgba(61,143,176,0.35);
+  text-decoration:none;
+  color: var(--primary);
+  font-size: 0.9rem;
+}
+.pill-link:hover{
+  background: rgba(61,143,176,0.18);
+}

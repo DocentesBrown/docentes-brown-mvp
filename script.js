@@ -19,7 +19,16 @@ function apiPost(payload) {
   return fetch(APPS_SCRIPT_URL, {
     method: "POST",
     body: JSON.stringify(payload)
-  }).then(r => r.json());
+  })
+    .then(async (r) => {
+      const text = await r.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        console.error("Respuesta no JSON del backend:", text);
+        throw new Error("El servidor devolvió una respuesta inválida (no JSON). Revisá el deploy/permisos del Apps Script.");
+      }
+    });
 }
 
 function showMessage(el, text, color = "var(--primary)") {
@@ -35,6 +44,73 @@ function hideMessage(el) {
   el.innerText = "";
 }
 
+
+
+// --- TALLERES: DOCUMENTACIÓN (Bibliografía) ---
+function ensureDocumentsLoaded() {
+  if (Array.isArray(globalDocs) && globalDocs.length > 0) return Promise.resolve(globalDocs);
+  return apiPost({ action: "getDocuments" }).then(json => {
+    globalDocs = json.data || [];
+    return globalDocs;
+  });
+}
+
+function docsLabel(doc) {
+  const num = doc.numero ? `Nº ${doc.numero}` : "S/N";
+  return `${doc.titulo} (${num}) — ${doc.categoria || "Sin categoría"}`;
+}
+
+function populateDocsMultiSelect(selectEl, docs, preselectedIds = []) {
+  if (!selectEl) return;
+  const selectedSet = new Set((preselectedIds || []).map(x => String(x)));
+  const optionsHtml = (docs || []).map(d => {
+    const id = String(d.id);
+    const label = docsLabel(d);
+    const selected = selectedSet.has(id) ? "selected" : "";
+    const safeLabel = escapeHtml(label);
+    return `<option value="${escapeAttr(id)}" ${selected}>${safeLabel}</option>`;
+  }).join("");
+  selectEl.innerHTML = optionsHtml;
+}
+
+function filterDocsSelect(searchInputEl, selectEl, docs, preselectedIds = []) {
+  if (!searchInputEl || !selectEl) return;
+  const term = String(searchInputEl.value || "").toLowerCase().trim();
+  const filtered = (docs || []).filter(d => {
+    const hay = `${d.titulo || ""} ${d.numero || ""} ${d.categoria || ""}`.toLowerCase();
+    return !term || hay.includes(term);
+  });
+  populateDocsMultiSelect(selectEl, filtered, preselectedIds);
+}
+
+function getSelectedValues(selectEl) {
+  if (!selectEl) return [];
+  return Array.from(selectEl.selectedOptions || []).map(o => String(o.value));
+}
+
+function renderTallerDocsInto(containerEl, docsIds) {
+  if (!containerEl) return;
+  const ids = (docsIds || []).map(x => String(x));
+  if (!ids.length) {
+    containerEl.innerHTML = "";
+    return;
+  }
+  const docsById = new Map((globalDocs || []).map(d => [String(d.id), d]));
+  const items = ids.map(id => docsById.get(id)).filter(Boolean);
+
+  if (!items.length) {
+    containerEl.innerHTML = `<p style="color:#777; font-style:italic;">No hay documentación vinculada (o no se pudo cargar).</p>`;
+    return;
+  }
+
+  let html = `<h3 style="margin:0 0 8px 0;">📚 Documentación del Taller</h3>`;
+  html += `<div class="pill-wrap">`;
+  items.forEach(d => {
+    html += `<a class="pill-link" href="${d.url}" target="_blank" rel="noopener">${escapeHtml(docsLabel(d))}</a>`;
+  });
+  html += `</div>`;
+  containerEl.innerHTML = html;
+}
 // --- INICIO SEGURO ---
 document.addEventListener("DOMContentLoaded", () => {
   console.log("DOM Cargado. Iniciando sistema...");
@@ -300,9 +376,21 @@ function setupEventListeners() {
     hideMessage(document.getElementById("taller-msg"));
     document.getElementById("count-selected").innerText = "0";
     loadDocentesForSelection("docentes-checklist");
-  });
-
-  // ADMIN: Crear Taller (submit)
+  
+    // Cargar documentación para bibliografía (desde pestaña Documentacion)
+    ensureDocumentsLoaded()
+      .then(docs => {
+        const select = document.getElementById("taller-bibliografia");
+        const search = document.getElementById("search-biblio-create");
+        populateDocsMultiSelect(select, docs, []);
+        if (search) {
+          search.value = "";
+          search.oninput = () => filterDocsSelect(search, select, docs, getSelectedValues(select));
+        }
+      })
+      .catch(err => console.error(err));
+});
+// ADMIN: Crear Taller (submit)
   document.getElementById("form-create-taller")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const msg = document.getElementById("taller-msg");
@@ -315,7 +403,8 @@ function setupEventListeners() {
       action: "createTaller",
       titulo: document.getElementById("taller-titulo").value,
       fechaTaller: document.getElementById("taller-fecha").value,
-      invitados: selectedIds
+      invitados: selectedIds,
+      docsIds: getSelectedValues(document.getElementById("taller-bibliografia"))
     })
     .then(json => {
       if (json.result === "success") {
@@ -381,7 +470,39 @@ function setupEventListeners() {
       document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
       loadAdminTalleresList();
     });
+  
+  // BIBLIOGRAFÍA / DOCUMENTACIÓN DEL TALLER
+  document.getElementById("btn-save-biblio")?.addEventListener("click", () => {
+    const msg = document.getElementById("biblio-msg");
+    const select = document.getElementById("select-biblio-edit");
+    const ids = getSelectedValues(select);
+
+    showMessage(msg, "Guardando...", "var(--primary)");
+
+    apiPost({
+      action: "updateTallerLink",
+      tallerId: currentEditingTallerId,
+      docsIds: ids
+    })
+      .then(json => {
+        if (json.result === "success") {
+          showMessage(msg, "Listo.", "green");
+          setTimeout(() => {
+            document.getElementById("modal-bibliografia-taller").classList.add("hidden");
+            document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
+            loadAdminTalleresList();
+          }, 700);
+        } else {
+          showMessage(msg, json.message || "Error.", "red");
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        showMessage(msg, "Error de conexión.", "red");
+      });
   });
+
+});
 
   // BUSCADORES checklist
   document.getElementById("search-docente-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "docentes-checklist"));
@@ -741,6 +862,7 @@ function loadAdminTalleresList() {
             </div>
             <div class="taller-actions">
               <button class="btn-sm" onclick="openAddParticipants(${t.id}, '${escapeAttr(t.titulo)}')">👥 Asistentes</button>
+              <button class="btn-sm btn-secondary" onclick="openBibliografiaTaller(${t.id}, '${escapeAttr(t.titulo)}', '${escapeAttr(JSON.stringify(t.docsIds || []))}')">📚 Docs</button>
               <button class="btn-sm btn-secondary" onclick="openAddLink(${t.id})">🔗 Link</button>
             </div>
           </li>
@@ -833,6 +955,32 @@ function openAddLink(id) {
   document.getElementById("meet-link-input").value = "";
 }
 
+
+function openBibliografiaTaller(tallerId, titulo, docsJson) {
+  currentEditingTallerId = tallerId;
+  document.getElementById("modal-admin-list-talleres").classList.add("hidden");
+  document.getElementById("modal-bibliografia-taller").classList.remove("hidden");
+  hideMessage(document.getElementById("biblio-msg"));
+
+  const subtitle = document.getElementById("biblio-taller-subtitle");
+  if (subtitle) subtitle.innerText = `Taller: ${titulo}`;
+
+  let pre = [];
+  try { pre = JSON.parse(docsJson || "[]"); } catch(e) { pre = []; }
+
+  ensureDocumentsLoaded()
+    .then(docs => {
+      const select = document.getElementById("select-biblio-edit");
+      const search = document.getElementById("search-biblio-edit");
+      populateDocsMultiSelect(select, docs, pre);
+      if (search) {
+        search.value = "";
+        search.oninput = () => filterDocsSelect(search, select, docs, getSelectedValues(select));
+      }
+    })
+    .catch(err => console.error(err));
+}
+
 function filterChecklist(text, containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -896,7 +1044,7 @@ function loadMyTalleres(userId) {
       let html = "";
       json.data.forEach(t => {
         html += `
-          <div class="card card-taller" onclick="showTallerInfo('${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}')">
+          <div class="card card-taller" onclick="showTallerInfo('${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}', '${escapeAttr(JSON.stringify(t.docsIds || []))}')">
             <h3>${escapeHtml(t.titulo)}</h3>
             <p>📅 ${escapeHtml(t.fechaTaller)}</p>
             ${t.link ? '<span class="badge-link">Enlace Disponible</span>' : ''}
@@ -911,15 +1059,27 @@ function loadMyTalleres(userId) {
     });
 }
 
-function showTallerInfo(titulo, link) {
+function showTallerInfo(titulo, link, docsJson) {
   document.getElementById("modal-taller-info").classList.remove("hidden");
   document.getElementById("info-taller-titulo").innerText = titulo;
+
   const actionContainer = document.getElementById("taller-action-container");
   if (link) {
-    actionContainer.innerHTML = `<a href="${link}" target="_blank" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
+    actionContainer.innerHTML = `<a href="${link}" target="_blank" rel="noopener" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
   } else {
     actionContainer.innerHTML = `<p style="color:#777; font-style:italic;">El enlace de la reunión aún no está disponible.</p>`;
   }
+
+  const biblioContainer = document.getElementById("taller-biblio-container");
+  let ids = [];
+  try { ids = JSON.parse(docsJson || "[]"); } catch(e){ ids = []; }
+
+  ensureDocumentsLoaded()
+    .then(() => renderTallerDocsInto(biblioContainer, ids))
+    .catch(err => {
+      console.error(err);
+      if (biblioContainer) biblioContainer.innerHTML = "";
+    });
 }
 
 function renderDocsList(docs) {
