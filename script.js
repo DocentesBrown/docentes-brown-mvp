@@ -57,19 +57,22 @@ function setupEventListeners() {
     if (btnAdminTalleres) {
         btnAdminTalleres.addEventListener('click', () => {
             console.log("Click en Admin Talleres");
-            document.getElementById('modal-admin-list-talleres').classList.remove('hidden');
+            document.getElementById('modal-admin-list-talleres')?.classList.remove('hidden');
             loadAdminTalleresList();
         });
     }
 
     // ADMIN: Botón Crear Taller (dentro del modal)
     document.getElementById('btn-open-create-taller')?.addEventListener('click', () => {
-        document.getElementById('modal-admin-list-talleres').classList.add('hidden');
-        document.getElementById('modal-create-taller').classList.remove('hidden');
-        document.getElementById('form-create-taller').reset();
-        document.getElementById('taller-msg').innerText = "";
-        document.getElementById('count-selected').innerText = "0";
-        currentTallerInvitedIds = []; 
+        document.getElementById('modal-admin-list-talleres')?.classList.add('hidden');
+        document.getElementById('modal-create-taller')?.classList.remove('hidden');
+        document.getElementById('form-create-taller')?.reset();
+        const msg = document.getElementById('taller-msg');
+        if (msg) { msg.innerText = ""; msg.style.color = ""; }
+        const count = document.getElementById('count-selected');
+        if (count) count.innerText = "0";
+        currentTallerInvitedIds = [];
+
         loadDocentesForSelection('docentes-checklist');
         loadDocsForSelection('docs-checklist');
     });
@@ -77,76 +80,87 @@ function setupEventListeners() {
     // ADMIN: Submit Crear Taller
     document.getElementById('form-create-taller')?.addEventListener('submit', (e) => {
         e.preventDefault();
+
         const msg = document.getElementById('taller-msg');
+        if (msg) { msg.innerText = "Creando..."; msg.classList.remove('hidden'); msg.style.color = "var(--primary)"; }
+
         const checked = document.querySelectorAll('#docentes-checklist input:checked');
         const selectedIds = Array.from(checked).map(cb => cb.value);
+
         const checkedDocs = document.querySelectorAll('#docs-checklist input:checked');
         const materialIds = Array.from(checkedDocs).map(cb => cb.value);
 
-        msg.innerText = "Creando..."; msg.classList.remove('hidden');
-        
-        fetch(APPS_SCRIPT_URL, { 
-            method: 'POST', 
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
             body: JSON.stringify({
                 action: 'createTaller',
-                titulo: document.getElementById('taller-titulo').value,
-                fechaTaller: document.getElementById('taller-fecha').value,
+                titulo: document.getElementById('taller-titulo')?.value || "",
+                fechaTaller: document.getElementById('taller-fecha')?.value || "",
                 invitados: selectedIds,
-                materialIds: materialIds 
+                materialIds: materialIds
             })
         })
         .then(r => r.json())
         .then(json => {
-            if(json.result === 'success') {
-                msg.innerText = "Listo."; msg.style.color = "green";
-                setTimeout(() => { 
-                    document.getElementById('modal-create-taller').classList.add('hidden'); 
-                    document.getElementById('modal-admin-list-talleres').classList.remove('hidden'); 
-                    loadAdminTalleresList(); 
+            if (json.result === 'success') {
+                if (msg) { msg.innerText = "Listo."; msg.style.color = "green"; }
+                setTimeout(() => {
+                    document.getElementById('modal-create-taller')?.classList.add('hidden');
+                    document.getElementById('modal-admin-list-talleres')?.classList.remove('hidden');
+                    loadAdminTalleresList();
                 }, 1000);
-            } else { msg.innerText = json.message; }
+            } else {
+                if (msg) { msg.innerText = json.message || "Error al crear."; msg.style.color = "red"; }
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            if (msg) { msg.innerText = "Error de conexión."; msg.style.color = "red"; }
         });
     });
 
     // ADMIN: Confirmar Editar Participantes
     document.getElementById('btn-confirm-add-participants')?.addEventListener('click', () => {
         const msg = document.getElementById('add-part-msg');
+        if (msg) { msg.innerText = "Guardando cambios..."; msg.style.color = "var(--primary)"; msg.classList.remove('hidden'); }
+
         const checked = document.querySelectorAll('#add-docentes-checklist input:checked');
-        const newIds = Array.from(checked).map(cb => cb.value); 
+        const newIds = Array.from(checked).map(cb => cb.value);
 
-        msg.innerText = "Guardando cambios..."; msg.style.color = "var(--primary)"; msg.classList.remove('hidden');
-
-        fetch(APPS_SCRIPT_URL, { 
-            method: 'POST', 
-            body: JSON.stringify({ 
-                action: 'saveTallerParticipants', 
-                tallerId: currentEditingTallerId, 
-                ids: newIds 
-            }) 
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'saveTallerParticipants',
+                tallerId: currentEditingTallerId,
+                ids: newIds
+            })
         })
         .then(r => r.json())
         .then(json => {
-            if(json.result === 'success') {
-                msg.innerText = "Lista actualizada."; msg.style.color = "green";
+            if (json.result === 'success') {
+                if (msg) { msg.innerText = "Lista actualizada."; msg.style.color = "green"; }
                 setTimeout(() => {
-                    document.getElementById('modal-add-participants').classList.add('hidden');
-                    document.getElementById('modal-admin-list-talleres').classList.remove('hidden');
-                    loadAdminTalleresList(); 
+                    document.getElementById('modal-add-participants')?.classList.add('hidden');
+                    document.getElementById('modal-admin-list-talleres')?.classList.remove('hidden');
+                    loadAdminTalleresList();
                 }, 1000);
-            } else { msg.innerText = "Error: " + json.message; msg.style.color = "red"; }
+            } else {
+                if (msg) { msg.innerText = "Error: " + (json.message || "No se pudo guardar."); msg.style.color = "red"; }
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            if (msg) { msg.innerText = "Error de conexión."; msg.style.color = "red"; }
         });
     });
-
 
     // ADMIN: Confirmar Editar Material de Estudio
     document.getElementById('btn-confirm-material')?.addEventListener('click', () => {
         const msg = document.getElementById('material-msg');
+        if (msg) { msg.innerText = "Guardando material..."; msg.style.color = "var(--primary)"; msg.classList.remove('hidden'); }
+
         const checked = document.querySelectorAll('#material-docs-checklist input:checked');
         const materialIds = Array.from(checked).map(cb => cb.value);
-
-        msg.innerText = "Guardando material...";
-        msg.style.color = "var(--primary)";
-        msg.classList.remove('hidden');
 
         fetch(APPS_SCRIPT_URL, {
             method: 'POST',
@@ -158,36 +172,33 @@ function setupEventListeners() {
         })
         .then(r => r.json())
         .then(json => {
-            if(json.result === 'success') {
-                msg.innerText = "Material actualizado.";
-                msg.style.color = "green";
+            if (json.result === 'success') {
+                if (msg) { msg.innerText = "Material actualizado."; msg.style.color = "green"; }
                 setTimeout(() => {
-                    document.getElementById('modal-edit-material').classList.add('hidden');
-                    document.getElementById('modal-admin-list-talleres').classList.remove('hidden');
+                    document.getElementById('modal-edit-material')?.classList.add('hidden');
+                    document.getElementById('modal-admin-list-talleres')?.classList.remove('hidden');
                     loadAdminTalleresList();
                 }, 800);
             } else {
-                msg.innerText = "Error: " + (json.message || "No se pudo guardar.");
-                msg.style.color = "red";
+                if (msg) { msg.innerText = "Error: " + (json.message || "No se pudo guardar."); msg.style.color = "red"; }
             }
         })
         .catch(err => {
             console.error(err);
-            msg.innerText = "Error de conexión.";
-            msg.style.color = "red";
+            if (msg) { msg.innerText = "Error de conexión."; msg.style.color = "red"; }
         });
     });
 
     // DOCENTE: Ver Documentos
     document.getElementById('btn-view-docs')?.addEventListener('click', () => {
-        document.getElementById('modal-view-docs').classList.remove('hidden');
-        document.getElementById('filter-search').value = "";
+        document.getElementById('modal-view-docs')?.classList.remove('hidden');
+        const search = document.getElementById('filter-search');
+        if (search) search.value = "";
 
-        // ✅ Por defecto: Favoritos
+        // Por defecto: Favoritos
         const filterCat = document.getElementById('filter-cat');
         if (filterCat) filterCat.value = "favoritos";
 
-        // ✅ Marcar como "vistos" al abrir (pero el indicador rojo depende de los últimos 6 días)
         localStorage.setItem('last_docs_view_date', new Date().toISOString());
         document.getElementById('notification-badge')?.classList.add('hidden');
 
@@ -196,15 +207,29 @@ function setupEventListeners() {
 
     // DOCENTE: Ver Perfil
     document.getElementById('btn-view-profile')?.addEventListener('click', () => {
-        document.getElementById('modal-profile').classList.remove('hidden');
+        document.getElementById('modal-profile')?.classList.remove('hidden');
         const user = JSON.parse(sessionStorage.getItem('db_user'));
         document.getElementById('static-nombre').value = user.nombre;
         document.getElementById('static-email').value = user.email;
-        fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'getProfile', userId: user.id }) }).then(r => r.json()).then(json => { if(json.result === 'success') { document.getElementById('prof-dni').value = json.data.dni; document.getElementById('prof-tel').value = json.data.telefono; document.getElementById('prof-inst').value = json.data.institucion; } });
+
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'getProfile', userId: user.id })
+        })
+        .then(r => r.json())
+        .then(json => {
+            if (json.result === 'success') {
+                document.getElementById('prof-dni').value = json.data.dni;
+                document.getElementById('prof-tel').value = json.data.telefono;
+                document.getElementById('prof-inst').value = json.data.institucion;
+            }
+        });
     });
 
     // ADMIN: Documentos
-    document.getElementById('btn-admin-docs')?.addEventListener('click', () => document.getElementById('modal-upload-docs').classList.remove('hidden'));
+    document.getElementById('btn-admin-docs')?.addEventListener('click', () => {
+        document.getElementById('modal-upload-docs')?.classList.remove('hidden');
+    });
 
     // FILTROS
     document.getElementById('filter-search')?.addEventListener('keyup', applyFilters);
@@ -216,105 +241,117 @@ function setupEventListeners() {
 
     // LINK MEET
     document.getElementById('btn-save-link')?.addEventListener('click', () => {
-        const link = document.getElementById('meet-link-input').value;
-        if(!link) return;
-        fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateTallerLink', tallerId: selectedTallerIdForLink, link: link }) })
-        .then(r => r.json()).then(json => { document.getElementById('modal-add-link').classList.add('hidden'); loadAdminTalleresList(); });
+        const link = document.getElementById('meet-link-input')?.value || "";
+        if (!link) return;
+
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'updateTallerLink', tallerId: selectedTallerIdForLink, link: link })
+        })
+        .then(r => r.json())
+        .then(() => {
+            document.getElementById('modal-add-link')?.classList.add('hidden');
+            loadAdminTalleresList();
+        });
     });
 
     // LOGIN
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
-        loginForm.addEventListener('submit', function(e) {
+        loginForm.addEventListener('submit', function (e) {
             e.preventDefault();
-            const msgBox = document.getElementById('login-message'); msgBox.innerText = "Entrando..."; msgBox.classList.remove('hidden');
-            fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'login', email: document.getElementById('login-email').value, password: document.getElementById('login-pass').value }) })
-            .then(r => r.json()).then(json => {
-                if (json.result === 'success') { sessionStorage.setItem('db_user', JSON.stringify(json.user)); renderDashboard(json.user); } 
-                else { msgBox.innerText = json.message; msgBox.style.color = "red"; }
+            const msgBox = document.getElementById('login-message');
+            if (msgBox) { msgBox.innerText = "Entrando..."; msgBox.classList.remove('hidden'); msgBox.style.color = ""; }
+
+            fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'login',
+                    email: document.getElementById('login-email')?.value || "",
+                    password: document.getElementById('login-pass')?.value || ""
+                })
+            })
+            .then(r => r.json())
+            .then(json => {
+                if (json.result === 'success') {
+                    sessionStorage.setItem('db_user', JSON.stringify(json.user));
+                    renderDashboard(json.user);
+                } else {
+                    if (msgBox) { msgBox.innerText = json.message || "Error."; msgBox.style.color = "red"; }
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                if (msgBox) { msgBox.innerText = "Error de conexión."; msgBox.style.color = "red"; }
             });
         });
     }
 
     // LOGOUT & MODAL REGISTRO
-    document.getElementById('logout-btn')?.addEventListener('click', () => { sessionStorage.removeItem('db_user'); location.reload(); });
-    
-    document.getElementById('open-register-modal')?.addEventListener('click', (e) => { 
-        e.preventDefault(); 
-        // Resetear visualización al abrir
-        document.getElementById('register-modal').classList.remove('hidden'); 
-        document.getElementById('register-form').classList.remove('hidden');
-        document.getElementById('register-form').reset();
-        const title = document.getElementById('register-title');
-        if(title) title.classList.remove('hidden');
-        document.getElementById('msg-exito-registro').classList.add('hidden');
-        document.getElementById('register-msg').classList.add('hidden');
+    document.getElementById('logout-btn')?.addEventListener('click', () => {
+        sessionStorage.removeItem('db_user');
+        location.reload();
     });
-    
-    // --- LÓGICA DE REGISTRO NUEVA ---
+
+    document.getElementById('open-register-modal')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('register-modal')?.classList.remove('hidden');
+        document.getElementById('register-form')?.classList.remove('hidden');
+        document.getElementById('register-form')?.reset();
+
+        const title = document.getElementById('register-title');
+        if (title) title.classList.remove('hidden');
+
+        document.getElementById('msg-exito-registro')?.classList.add('hidden');
+        document.getElementById('register-msg')?.classList.add('hidden');
+    });
+
+    // REGISTRO
     document.getElementById('register-form')?.addEventListener('submit', (e) => {
         e.preventDefault();
-        
-        // 1. Validar Contraseñas
-        const p1 = document.getElementById('reg-pass').value;
-        const p2 = document.getElementById('reg-pass-confirm').value;
+
+        const p1 = document.getElementById('reg-pass')?.value || "";
+        const p2 = document.getElementById('reg-pass-confirm')?.value || "";
         const msgBox = document.getElementById('register-msg');
-        
-        if(p1 !== p2) {
-            msgBox.innerText = "Las contraseñas no coinciden.";
-            msgBox.style.color = "red";
-            msgBox.classList.remove('hidden');
+
+        if (p1 !== p2) {
+            if (msgBox) { msgBox.innerText = "Las contraseñas no coinciden."; msgBox.style.color = "red"; msgBox.classList.remove('hidden'); }
             return;
         }
 
-        // 2. Estado de Carga (UX)
         const btn = e.target.querySelector('button[type="submit"]');
-        const originalText = btn.innerText;
-        btn.innerText = "Enviando solicitud...";
-        btn.disabled = true;
-        msgBox.classList.add('hidden');
+        const originalText = btn ? btn.innerText : "";
+        if (btn) { btn.innerText = "Enviando solicitud..."; btn.disabled = true; }
+        if (msgBox) msgBox.classList.add('hidden');
 
-        // 3. Petición al Backend
-        fetch(APPS_SCRIPT_URL, { 
-            method: 'POST', 
-            body: JSON.stringify({ 
-                action: 'register', 
-                nombre: document.getElementById('reg-nombre').value, 
-                email: document.getElementById('reg-email').value, 
-                rol: document.getElementById('reg-rol').value, 
-                password: p1 
-            }) 
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'register',
+                nombre: document.getElementById('reg-nombre')?.value || "",
+                email: document.getElementById('reg-email')?.value || "",
+                rol: document.getElementById('reg-rol')?.value || "",
+                password: p1
+            })
         })
         .then(r => r.json())
         .then(json => {
-            if(json.result === 'success') {
-                // EXITO: Ocultar form y título, mostrar mensaje de éxito
-                document.getElementById('register-form').classList.add('hidden');
-                
-                const title = document.getElementById('register-title');
-                if(title) title.classList.add('hidden');
-
-                document.getElementById('msg-exito-registro').classList.remove('hidden');
+            if (json.result === 'success') {
+                document.getElementById('register-form')?.classList.add('hidden');
+                document.getElementById('register-title')?.classList.add('hidden');
+                document.getElementById('msg-exito-registro')?.classList.remove('hidden');
             } else {
-                // ERROR del Backend
-                msgBox.innerText = "Error: " + json.message; 
-                msgBox.style.color = "red";
-                msgBox.classList.remove('hidden');
-                btn.innerText = originalText;
-                btn.disabled = false;
+                if (msgBox) { msgBox.innerText = "Error: " + (json.message || "No se pudo registrar."); msgBox.style.color = "red"; msgBox.classList.remove('hidden'); }
+                if (btn) { btn.innerText = originalText; btn.disabled = false; }
             }
         })
         .catch(err => {
             console.error(err);
-            msgBox.innerText = "Error de conexión. Intente nuevamente.";
-            msgBox.style.color = "red";
-            msgBox.classList.remove('hidden');
-            btn.innerText = originalText;
-            btn.disabled = false;
+            if (msgBox) { msgBox.innerText = "Error de conexión. Intente nuevamente."; msgBox.style.color = "red"; msgBox.classList.remove('hidden'); }
+            if (btn) { btn.innerText = originalText; btn.disabled = false; }
         });
     });
 
-    
     // SUBIR DOCUMENTO (CORS-safe + mensajes visibles)
     document.getElementById('form-upload-docs')?.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -338,7 +375,7 @@ function setupEventListeners() {
         const originalText = submitBtn ? submitBtn.innerText : "";
         if (submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Subiendo..."; }
 
-        if (msg) { msg.innerText = "Leyendo archivo..."; }
+        if (msg) msg.innerText = "Leyendo archivo...";
 
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -351,7 +388,7 @@ function setupEventListeners() {
                 return;
             }
 
-            if (msg) { msg.innerText = "Subiendo a Drive..."; }
+            if (msg) msg.innerText = "Subiendo a Drive...";
 
             fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
@@ -371,7 +408,6 @@ function setupEventListeners() {
                 if (json.result === "success") {
                     if (msg) { msg.style.color = "green"; msg.innerText = json.message || "Documento subido correctamente."; }
                     e.target.reset();
-                    // refrescar docs / badge
                     checkNewDocuments();
                 } else {
                     if (msg) { msg.style.color = "red"; msg.innerText = json.message || "No se pudo subir el documento."; }
@@ -392,16 +428,33 @@ function setupEventListeners() {
         };
     });
 
-document.getElementById('form-profile')?.addEventListener('submit', (e) => {
-        e.preventDefault(); const user = JSON.parse(sessionStorage.getItem('db_user'));
-        fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateProfile', userId: user.id, dni: document.getElementById('prof-dni').value, telefono: document.getElementById('prof-tel').value, institucion: document.getElementById('prof-inst').value }) }).then(r => r.json()).then(json => { document.getElementById('profile-msg').innerText = json.message; });
+    // PERFIL
+    document.getElementById('form-profile')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const user = JSON.parse(sessionStorage.getItem('db_user'));
+
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'updateProfile',
+                userId: user.id,
+                dni: document.getElementById('prof-dni')?.value || "",
+                telefono: document.getElementById('prof-tel')?.value || "",
+                institucion: document.getElementById('prof-inst')?.value || ""
+            })
+        })
+        .then(r => r.json())
+        .then(json => {
+            const pm = document.getElementById('profile-msg');
+            if (pm) pm.innerText = json.message || "Actualizado.";
+        });
     });
 
     // CERRAR MODALES (Genérico)
-    document.querySelectorAll('.close-modal, .close-modal-btn').forEach(btn => { 
-        btn.addEventListener('click', (e) => { 
-            e.target.closest('.modal').classList.add('hidden'); 
-        }); 
+    document.querySelectorAll('.close-modal, .close-modal-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.target.closest('.modal')?.classList.add('hidden');
+        });
     });
 
     // WHATSAPP
@@ -409,6 +462,7 @@ document.getElementById('form-profile')?.addEventListener('submit', (e) => {
         window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=Hola,%20tengo%20una%20consulta%20sobre%20el%20Campus.`, '_blank');
     });
 }
+
 
 // --- SESIÓN Y DASHBOARD ---
 function checkSession() {
