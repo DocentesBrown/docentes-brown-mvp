@@ -97,8 +97,6 @@ function setupEventListeners() {
         });
     });
 
-    });
-
     // ADMIN: Confirmar Editar Participantes
     document.getElementById('btn-confirm-add-participants')?.addEventListener('click', () => {
         const msg = document.getElementById('add-part-msg');
