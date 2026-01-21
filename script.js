@@ -14,37 +14,12 @@ let pubsCache = [];
 let tutsCache = [];
 let studentsActiveTab = "pubs"; // pubs | tuts
 
-function forceHideSplash() {
-  const splash = document.getElementById("splash-screen");
-  if (splash) splash.style.display = "none";
-}
-
-// Si algo falla en JS, igual mostramos el login (evita quedar clavado en el splash)
-window.addEventListener("error", () => { try { forceHideSplash(); } catch(e){} });
-window.addEventListener("unhandledrejection", () => { try { forceHideSplash(); } catch(e){} });
-
-
 // --- HELPERS API (sin headers JSON para evitar CORS preflight) ---
 function apiPost(payload) {
   return fetch(APPS_SCRIPT_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json;charset=UTF-8" },
-    body: JSON.stringify(payload),
-    mode: "cors",
-    redirect: "follow"
-  })
-    .then(async (r) => {
-      const text = await r.text();
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        console.error("Respuesta no JSON del backend:", text.slice(0, 300));
-        throw new Error("La respuesta del servidor no es válida (no es JSON). Revisá el despliegue del Apps Script y permisos.");
-      }
-    });
-}
-
-).then(r => r.json());
+    body: JSON.stringify(payload)
+  }).then(r => r.json());
 }
 
 function showMessage(el, text, color = "var(--primary)") {
@@ -62,9 +37,6 @@ function hideMessage(el) {
 
 // --- INICIO SEGURO ---
 document.addEventListener("DOMContentLoaded", () => {
-  // Ocultar splash (seguro)
-  setTimeout(() => { try { forceHideSplash(); } catch(e){} }, 1200);
-
   console.log("DOM Cargado. Iniciando sistema...");
   setupEventListeners();
 
