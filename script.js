@@ -8,26 +8,42 @@ let allDocentesCache = [];
 let selectedTallerIdForLink = null;
 let currentEditingTallerId = null;
 let userFavorites = [];
-
 let appsCache = [];
 let pubsCache = [];
 let tutsCache = [];
-let studentsActiveTab = "pubs"; // pubs | tuts
+let studentsActiveTab = "pubs";
 
-// --- HELPERS API ---
+// --- API CON XMLHttpRequest (evita CORS) ---
 function apiPost(payload) {
-    return fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        body: JSON.stringify(payload)
-    })
-    .then(async (r) => {
-        const text = await r.text();
-        try {
-            return JSON.parse(text);
-        } catch (e) {
-            console.error("Respuesta no JSON del backend:", text);
-            throw new Error("El servidor devolvió una respuesta inválida.");
-        }
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', APPS_SCRIPT_URL, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200 || xhr.status === 0) {
+                try {
+                    const json = JSON.parse(xhr.responseText);
+                    resolve(json);
+                } catch (e) {
+                    console.error("Error parsing JSON:", e, xhr.responseText);
+                    reject(new Error("Invalid JSON response"));
+                }
+            } else {
+                reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+            }
+        };
+        
+        xhr.onerror = function() {
+            reject(new Error("Network error"));
+        };
+        
+        xhr.ontimeout = function() {
+            reject(new Error("Request timeout"));
+        };
+        
+        const formData = `data=${encodeURIComponent(JSON.stringify(payload))}`;
+        xhr.send(formData);
     });
 }
 
@@ -44,7 +60,7 @@ function hideMessage(el) {
     el.innerText = "";
 }
 
-// --- INICIO SEGURO ---
+// --- INICIO ---
 document.addEventListener("DOMContentLoaded", () => {
     console.log("DOM Cargado. Iniciando sistema...");
     setupEventListeners();
@@ -78,7 +94,7 @@ function setupEventListeners() {
         openAppsModal(true);
     });
 
-    // ADMIN: Estudiantes (contenido)
+    // ADMIN: Estudiantes
     document.getElementById("btn-admin-estudiantes")?.addEventListener("click", () => {
         openStudentsModal(true, "pubs");
     });
@@ -114,9 +130,7 @@ function setupEventListeners() {
                     document.getElementById("prof-inst").value = json.data.institucion || "";
                 }
             })
-            .catch(err => {
-                console.error("Error cargando perfil:", err);
-            });
+            .catch(err => console.error("Error cargando perfil:", err));
     });
 
     // FILTROS DOCS
@@ -138,6 +152,7 @@ function setupEventListeners() {
             if (json.result === "success") {
                 sessionStorage.setItem("db_user", JSON.stringify(json.user));
                 renderDashboard(json.user);
+                hideMessage(msgBox);
             } else {
                 showMessage(msgBox, json.message, "red");
             }
@@ -160,8 +175,7 @@ function setupEventListeners() {
         document.getElementById("register-modal").classList.remove("hidden");
         document.getElementById("register-form").classList.remove("hidden");
         document.getElementById("register-form").reset();
-        const title = document.getElementById("register-title");
-        if (title) title.classList.remove("hidden");
+        document.getElementById("register-title").classList.remove("hidden");
         document.getElementById("msg-exito-registro").classList.add("hidden");
         document.getElementById("register-msg").classList.add("hidden");
     });
@@ -194,8 +208,7 @@ function setupEventListeners() {
         .then(json => {
             if (json.result === "success") {
                 document.getElementById("register-form").classList.add("hidden");
-                const title = document.getElementById("register-title");
-                if (title) title.classList.add("hidden");
+                document.getElementById("register-title").classList.add("hidden");
                 document.getElementById("msg-exito-registro").classList.remove("hidden");
             } else {
                 showMessage(msgBox, "Error: " + json.message, "red");
@@ -211,7 +224,7 @@ function setupEventListeners() {
         });
     });
 
-    // SUBIR DOCUMENTO (admin)
+    // SUBIR DOCUMENTO
     document.getElementById("form-upload-docs")?.addEventListener("submit", (e) => {
         e.preventDefault();
         const msg = document.getElementById("upload-msg");
@@ -440,7 +453,7 @@ function setupEventListeners() {
         });
     });
 
-    // BUSCADORES checklist
+    // BUSCADORES
     document.getElementById("search-docente-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "docentes-checklist"));
     document.getElementById("search-add-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "add-docentes-checklist"));
     document.getElementById("search-biblio-edit")?.addEventListener("keyup", (e) => filterBiblioSearch(e.target.value));
@@ -574,11 +587,9 @@ function renderDashboard(user) {
     const targetDash = document.getElementById(dashId);
     if (targetDash) targetDash.classList.remove("hidden");
 
-    // Ajustar visibilidad de bloques admin en modales
     const isAdmin = (dashId === "dash-administrador");
     toggleAdminBlocks(isAdmin);
 
-    // Cargar data base
     if (String(user.rol || "").toLowerCase() === "docente") {
         apiPost({ action: "getProfile", userId: user.id })
             .then(json => {
@@ -589,7 +600,6 @@ function renderDashboard(user) {
     }
 
     if (String(user.rol || "").toLowerCase().includes("estudiante")) {
-        // pre-cargar listas (opcional)
         loadApps(false);
         loadPublications(false);
         loadTutorials(false);
@@ -612,10 +622,7 @@ function openAppsModal(isAdminOpen) {
     const user = JSON.parse(sessionStorage.getItem("db_user") || "null");
     const isAdmin = user && (String(user.rol || "").toLowerCase() === "admin" || String(user.rol || "").toLowerCase() === "administrador");
     toggleAdminBlocks(isAdmin);
-
-    // limpiar mensajes
     hideMessage(document.getElementById("app-msg"));
-
     loadApps(isAdmin);
 }
 
@@ -670,7 +677,7 @@ function renderAppsList(apps) {
     container.innerHTML = html;
 }
 
-// --- ESTUDIANTES: modal y tabs ---
+// --- ESTUDIANTES ---
 function openStudentsModal(isAdminOpen, tab) {
     document.getElementById("modal-estudiantes").classList.remove("hidden");
     setStudentsTab(tab || "pubs");
@@ -711,7 +718,6 @@ function setStudentsTab(tab) {
         }
     }
 
-    // cargar y renderizar lista
     if (tab === "pubs") loadPublications(false);
     else loadTutorials(false);
 }
@@ -790,7 +796,7 @@ function renderStudentsList(items, type) {
     container.innerHTML = html;
 }
 
-// --- TALLERES (ADMIN/LISTAS) ---
+// --- TALLERES ---
 function loadAdminTalleresList() {
     const container = document.getElementById("admin-talleres-list");
     if (container) container.innerHTML = "<p>Cargando talleres...</p>";
@@ -1201,7 +1207,7 @@ function renderTallerDocsInto(containerEl, docsIds) {
         });
 }
 
-// --- UTILIDADES FECHA + ESCAPE ---
+// --- UTILIDADES ---
 function parseDate(dateInput) {
     if (!dateInput) return new Date(0);
     let str = String(dateInput).trim();
