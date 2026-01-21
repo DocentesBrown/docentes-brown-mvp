@@ -293,36 +293,3 @@ body { font-family: var(--font); background-color: var(--bg-gray); color: var(--
 .simple-item .meta-row a{
   text-decoration:none;
 }
-
-
-/* --- Bibliografía / Select múltiple --- */
-.select-multi{
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(36,73,110,0.25);
-  background: rgba(243,239,220,0.35);
-  font-family: inherit;
-  font-size: 0.95rem;
-  outline: none;
-}
-.select-multi:focus{
-  border-color: rgba(61,143,176,0.8);
-  box-shadow: 0 0 0 3px rgba(61,143,176,0.18);
-}
-.biblio-list{
-  margin-top: 10px;
-  padding-left: 18px;
-}
-.biblio-list li{
-  margin: 6px 0;
-}
-.biblio-pill{
-  display:inline-block;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(77,48,105,0.25);
-  background: rgba(77,48,105,0.08);
-  font-size: 0.85rem;
-  margin: 6px 6px 0 0;
-}
