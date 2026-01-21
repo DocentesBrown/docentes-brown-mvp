@@ -175,15 +175,23 @@ function saveTallerParticipants(ss, data) {
   return response({ "result": "error", "message": "Taller no encontrado" });
 }
 
+// ✅ PATCH MÍNIMO: agrega Docs_IDs al header y crea el valor por defecto "[]"
 function createTaller(ss, data) {
-  var sheet = getOrCreateSheet(ss, 'Talleres', ['ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller', 'Invitados_IDs', 'Enlace_Meet']);
+  var sheet = getOrCreateSheet(ss, 'Talleres', [
+    'ID_Taller', 'Fecha_Creacion', 'Titulo', 'Fecha_Taller',
+    'Invitados_IDs', 'Enlace_Meet', 'Docs_IDs'
+  ]);
+
   var newId = getLastId(sheet) + 1;
   var fechaHoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
   var invitadosString = JSON.stringify(data.invitados || []);
-  sheet.appendRow([newId, fechaHoy, data.titulo, data.fechaTaller, invitadosString, ""]);
+
+  // Docs_IDs queda vacío por defecto (JSON array)
+  sheet.appendRow([newId, fechaHoy, data.titulo, data.fechaTaller, invitadosString, "", "[]"]);
   return response({ "result": "success", "message": "Taller creado correctamente" });
 }
 
+// ✅ PATCH MÍNIMO: devuelve docsIds desde columna G (índice 6)
 function getAllTalleres(ss) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "success", "data": [] });
@@ -198,12 +206,14 @@ function getAllTalleres(ss) {
       titulo: rows[i][2],
       fechaTaller: cleanDate(rows[i][3]),
       invitados: invitados,
-      link: rows[i][5] || ""
+      link: rows[i][5] || "",
+      docsIds: parseDocsIds(rows[i][6])
     });
   }
   return response({ "result": "success", "data": talleres });
 }
 
+// ✅ PATCH MÍNIMO: devuelve docsIds también en mis talleres (columna G)
 function getDocenteTalleres(ss, userId) {
   var sheet = ss.getSheetByName('Talleres');
   if (!sheet) return response({ "result": "success", "data": [] });
@@ -220,7 +230,8 @@ function getDocenteTalleres(ss, userId) {
           id: rows[i][0],
           titulo: rows[i][2],
           fechaTaller: cleanDate(rows[i][3]),
-          link: rows[i][5] || ""
+          link: rows[i][5] || "",
+          docsIds: parseDocsIds(rows[i][6])
         });
       }
     } catch (e) {}
@@ -510,6 +521,23 @@ function cleanDate(rawDate) {
   if (!rawDate) return "";
   if (Object.prototype.toString.call(rawDate) === '[object Date]') return Utilities.formatDate(rawDate, Session.getScriptTimeZone(), "dd/MM/yyyy");
   return String(rawDate);
+}
+
+// ✅ PATCH MÍNIMO: helper para leer Docs_IDs (JSON array o lista separada por coma/punto y coma)
+function parseDocsIds(raw) {
+  if (!raw) return [];
+
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+
+  var s = String(raw).trim();
+  if (!s) return [];
+
+  try {
+    var parsed = JSON.parse(s);
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  } catch (e) {}
+
+  return s.split(/[;,]/).map(function(x){ return String(x).trim(); }).filter(Boolean);
 }
 
 function response(data) {
