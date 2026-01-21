@@ -269,6 +269,14 @@
                     </div>
                 </div>
 
+                
+                <div class="input-group">
+                    <label>Bibliografía del Taller (opcional)</label>
+                    <small style="display:block; margin-top:-6px; color:#666;">Seleccioná uno o varios documentos para que los docentes los vean dentro del taller.</small>
+                    <input type="text" id="search-biblio-create" placeholder="Buscar bibliografía..." class="search-input-sm" style="margin-top:8px;">
+                    <select id="taller-bibliografia" class="select-multi" multiple size="6" aria-label="Bibliografía del taller"></select>
+                </div>
+
                 <button type="submit" class="btn-primary" style="margin-top:1rem;">Crear Taller</button>
                 <p id="taller-msg" class="message-box hidden"></p>
             </form>
@@ -471,11 +479,27 @@
             <div class="info-box">
                 <p id="info-taller-status">Ud. está inscripto en este taller.</p>
                 <div id="taller-action-container" style="margin-top:1rem;"></div>
+                <div id="taller-biblio-container" style="margin-top:1rem;"></div>
             </div>
             <button class="btn-primary close-modal-btn" style="margin-top:1rem;">Cerrar</button>
         </div>
     </div>
 
-    <script src="script.js"></script>
+    
+    <div id="modal-bibliografia-taller" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal-btn" style="float:right; cursor:pointer;">&times;</span>
+            <h2>Bibliografía del Taller</h2>
+            <p id="biblio-taller-subtitle" style="margin-bottom:10px; color:#666;"></p>
+
+            <input type="text" id="search-biblio-edit" placeholder="Buscar bibliografía..." class="search-input-sm">
+            <select id="select-biblio-edit" class="select-multi" multiple size="8" aria-label="Bibliografía del taller"></select>
+
+            <button id="btn-save-biblio" class="btn-primary" style="margin-top:1rem;">Guardar Bibliografía</button>
+            <p id="biblio-msg" class="message-box hidden"></p>
+        </div>
+    </div>
+
+<script src="script.js"></script>
 </body>
 </html>

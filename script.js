@@ -6,6 +6,8 @@ const WHATSAPP_NUMBER = "5491153196358";
 let globalDocs = [];
 let allDocentesCache = [];
 let selectedTallerIdForLink = null;
+let selectedTallerBibIdsForLink = [];
+let selectedTallerIdForBiblio = null;
 let currentEditingTallerId = null;
 let userFavorites = [];
 
@@ -21,6 +23,112 @@ function apiPost(payload) {
     body: JSON.stringify(payload)
   }).then(r => r.json());
 }
+
+
+// --- METADATA Taller (sin tocar backend): guardamos bibliografía dentro del campo "link" ---
+const DB_META_MARKER = "__DBMETA__";
+
+function parseTallerLinkField(raw) {
+  const out = { meetLink: "", bibIds: [] };
+  if (!raw) return out;
+  const s = String(raw);
+  const idx = s.indexOf(DB_META_MARKER);
+  if (idx === -1) {
+    out.meetLink = s.trim();
+    return out;
+  }
+  out.meetLink = s.slice(0, idx).trim();
+  const metaRaw = s.slice(idx + DB_META_MARKER.length);
+  try {
+    const meta = JSON.parse(decodeURIComponent(metaRaw || ""));
+    if (meta && Array.isArray(meta.bibIds)) out.bibIds = meta.bibIds.map(x => String(x));
+  } catch (e) {
+    // si falla, ignoramos metadata
+  }
+  return out;
+}
+
+function buildTallerLinkField(meetLink, bibIds) {
+  const cleanMeet = (meetLink || "").trim();
+  const meta = { bibIds: (bibIds || []).map(x => String(x)) };
+  // Guardamos SIEMPRE marker, así podemos distinguir meetLink real del JSON.
+  return cleanMeet + DB_META_MARKER + encodeURIComponent(JSON.stringify(meta));
+}
+
+function getDocsForBibliografia() {
+  // Si existe una categoría "Bibliografía", priorizamos esa; si no, mostramos todo.
+  const docs = Array.isArray(globalDocs) ? globalDocs.slice() : [];
+  const hasBiblioCategory = docs.some(d => String(d.categoria || "").toLowerCase().includes("bibli"));
+  const filtered = hasBiblioCategory
+    ? docs.filter(d => String(d.categoria || "").toLowerCase().includes("bibli"))
+    : docs;
+  // orden alfabético por título
+  filtered.sort((a, b) => String(a.titulo || "").localeCompare(String(b.titulo || "")));
+  return filtered;
+}
+
+function renderBibliografiaSelect(selectEl, preselectedIds = []) {
+  if (!selectEl) return;
+  const selected = new Set((preselectedIds || []).map(x => String(x)));
+  const docs = getDocsForBibliografia();
+
+  let html = "";
+  if (!docs.length) {
+    html = `<option value="" disabled>(No hay documentos disponibles)</option>`;
+  } else {
+    docs.forEach(d => {
+      const id = String(d.id);
+      const label = `${d.titulo || "Sin título"}${d.categoria ? " — " + d.categoria : ""}`;
+      html += `<option value="${escapeAttr(id)}" ${selected.has(id) ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    });
+  }
+  selectEl.innerHTML = html;
+}
+
+function filterSelectOptions(selectEl, query) {
+  if (!selectEl) return;
+  const q = String(query || "").toLowerCase().trim();
+  const options = Array.from(selectEl.options);
+  options.forEach(opt => {
+    const text = String(opt.text || "").toLowerCase();
+    opt.hidden = q && !text.includes(q);
+  });
+}
+
+function getSelectedValues(selectEl) {
+  if (!selectEl) return [];
+  return Array.from(selectEl.selectedOptions || []).map(o => String(o.value));
+}
+
+function renderBibliografiaForDocente(containerEl, bibIds = []) {
+  if (!containerEl) return;
+  const ids = (bibIds || []).map(x => String(x));
+  if (!ids.length) {
+    containerEl.innerHTML = "";
+    return;
+  }
+
+  const byId = new Map((globalDocs || []).map(d => [String(d.id), d]));
+  const items = ids.map(id => byId.get(id)).filter(Boolean);
+
+  if (!items.length) {
+    containerEl.innerHTML = `
+      <div class="info-box" style="margin-top:10px;">
+        <p style="margin:0; color:#666;">📚 Bibliografía asignada, pero no se encontró el material en la lista actual.</p>
+      </div>`;
+    return;
+  }
+
+  const pills = items.map(d => `<a class="biblio-pill" href="${escapeAttr(d.url || "#")}" target="_blank" rel="noopener">${escapeHtml(d.titulo || "Documento")}</a>`).join("");
+  containerEl.innerHTML = `
+    <div class="info-box" style="margin-top:10px;">
+      <p style="margin:0 0 8px 0;"><strong>📚 Bibliografía</strong></p>
+      <div>${pills}</div>
+      <small style="display:block; margin-top:10px; color:#666;">Se abre en una pestaña nueva.</small>
+    </div>
+  `;
+}
+
 
 function showMessage(el, text, color = "var(--primary)") {
   if (!el) return;
@@ -300,6 +408,13 @@ function setupEventListeners() {
     hideMessage(document.getElementById("taller-msg"));
     document.getElementById("count-selected").innerText = "0";
     loadDocentesForSelection("docentes-checklist");
+
+    // Bibliografía
+    const sel = document.getElementById("taller-bibliografia");
+    const search = document.getElementById("search-biblio-create");
+    if (search) search.value = "";
+    renderBibliografiaSelect(sel, []);
+    filterSelectOptions(sel, "");
   });
 
   // ADMIN: Crear Taller (submit)
@@ -309,22 +424,49 @@ function setupEventListeners() {
     const checked = document.querySelectorAll("#docentes-checklist input:checked");
     const selectedIds = Array.from(checked).map(cb => cb.value);
 
+    const bibSelect = document.getElementById("taller-bibliografia");
+    const bibIds = getSelectedValues(bibSelect);
+
+    const titulo = document.getElementById("taller-titulo").value;
+    const fechaTaller = document.getElementById("taller-fecha").value;
+
     showMessage(msg, "Creando...");
 
     apiPost({
       action: "createTaller",
-      titulo: document.getElementById("taller-titulo").value,
-      fechaTaller: document.getElementById("taller-fecha").value,
+      titulo: titulo,
+      fechaTaller: fechaTaller,
       invitados: selectedIds
     })
-    .then(json => {
+    .then(async (json) => {
       if (json.result === "success") {
+
+        // Si eligió bibliografía, la guardamos SIN tocar backend:
+        // buscamos el taller recién creado y guardamos metadata dentro del campo "link".
+        if (bibIds.length > 0) {
+          try {
+            const list = await apiPost({ action: "getAllTalleres" });
+            const matches = (list.data || [])
+              .filter(t => String(t.titulo) === String(titulo) && String(t.fechaTaller) === String(fechaTaller))
+              .sort((a, b) => Number(b.id) - Number(a.id));
+            const newest = matches[0];
+            if (newest && newest.id != null) {
+              const parsed = parseTallerLinkField(newest.link || "");
+              const linkField = buildTallerLinkField(parsed.meetLink || "", bibIds);
+              await apiPost({ action: "updateTallerLink", tallerId: newest.id, link: linkField });
+            }
+          } catch (e) {
+            console.error("No se pudo guardar bibliografía:", e);
+          }
+        }
+
         showMessage(msg, "Listo.", "green");
         setTimeout(() => {
-          document.getElementById("modal-create-taller").classList.add("hidden");
-          document.getElementById("modal-admin-list-talleres").classList.remove("hidden");
+          document.getElementById("modal-create-taller")?.classList.add("hidden");
+          document.getElementById("modal-admin-list-talleres")?.classList.remove("hidden");
           loadAdminTalleresList();
         }, 800);
+
       } else {
         showMessage(msg, json.message || "Error.", "red");
       }
@@ -333,6 +475,7 @@ function setupEventListeners() {
       console.error(err);
       showMessage(msg, "Error de conexión.", "red");
     });
+  });
   });
 
   // ADMIN: Guardar participantes
@@ -368,13 +511,17 @@ function setupEventListeners() {
 
   // LINK MEET
   document.getElementById("btn-save-link")?.addEventListener("click", () => {
-    const link = document.getElementById("meet-link-input").value;
-    if (!link) return;
+    const linkInput = document.getElementById("meet-link-input");
+    const raw = linkInput ? linkInput.value : "";
+    const meet = String(raw || "").trim();
+
+    // preserva bibliografía guardada en metadata
+    const linkField = buildTallerLinkField(meet, selectedTallerBibIdsForLink || []);
 
     apiPost({
       action: "updateTallerLink",
       tallerId: selectedTallerIdForLink,
-      link: link
+      link: linkField
     })
     .then(() => {
       document.getElementById("modal-add-link").classList.add("hidden");
@@ -383,9 +530,56 @@ function setupEventListeners() {
     });
   });
 
+  // BIBLIOGRAFÍA taller (admin)
+  document.getElementById("btn-save-biblio")?.addEventListener("click", () => {
+    const msg = document.getElementById("biblio-msg");
+    const sel = document.getElementById("select-biblio-edit");
+    const bibIds = getSelectedValues(sel);
+
+    showMessage(msg, "Guardando...");
+
+    // mantenemos el meet link actual y actualizamos solo bibliografía
+    apiPost({ action: "getAllTalleres" })
+      .then(list => {
+        const t = (list.data || []).find(x => String(x.id) === String(selectedTallerIdForBiblio));
+        const parsed = parseTallerLinkField((t && t.link) ? t.link : "");
+        const linkField = buildTallerLinkField(parsed.meetLink || "", bibIds);
+
+        return apiPost({ action: "updateTallerLink", tallerId: selectedTallerIdForBiblio, link: linkField });
+      })
+      .then(json => {
+        if (json && json.result === "error") {
+          showMessage(msg, json.message || "Error.", "red");
+          return;
+        }
+        showMessage(msg, "Bibliografía guardada.", "green");
+        setTimeout(() => {
+          document.getElementById("modal-bibliografia-taller")?.classList.add("hidden");
+          document.getElementById("modal-admin-list-talleres")?.classList.remove("hidden");
+          loadAdminTalleresList();
+        }, 700);
+      })
+      .catch(err => {
+        console.error(err);
+        showMessage(msg, "Error de conexión.", "red");
+      });
+  });
+
+  });
+
   // BUSCADORES checklist
   document.getElementById("search-docente-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "docentes-checklist"));
   document.getElementById("search-add-input")?.addEventListener("keyup", (e) => filterChecklist(e.target.value, "add-docentes-checklist"));
+  // BUSCADOR bibliografía
+  document.getElementById("search-biblio-create")?.addEventListener("keyup", (e) => {
+    const sel = document.getElementById("taller-bibliografia");
+    filterSelectOptions(sel, e.target.value);
+  });
+  document.getElementById("search-biblio-edit")?.addEventListener("keyup", (e) => {
+    const sel = document.getElementById("select-biblio-edit");
+    filterSelectOptions(sel, e.target.value);
+  });
+
 
   // APLICACIONES: crear
   document.getElementById("form-create-app")?.addEventListener("submit", (e) => {
@@ -728,20 +922,27 @@ function loadAdminTalleresList() {
         if (container) container.innerHTML = "<p>No hay talleres creados.</p>";
         return;
       }
+
       let html = '<ul class="taller-list">';
       json.data.forEach(t => {
+        const parsed = parseTallerLinkField(t.link || "");
+        const meetLink = parsed.meetLink || "";
+        const bibCount = (parsed.bibIds || []).length;
+
         html += `
           <li class="taller-item">
             <div class="taller-info">
               <strong>${escapeHtml(t.titulo)}</strong> <small>(${escapeHtml(t.fechaTaller)})</small><br>
               <span style="font-size:0.85rem; color:#666;">Invitados: ${t.invitados ? t.invitados.length : 0}</span>
+              <span style="font-size:0.85rem; color:#666; margin-left:10px;">📚 Bibliografía: ${bibCount}</span>
               <div style="margin-top:5px;">
-                ${t.link ? `<a href="${t.link}" target="_blank" class="link-tag">Enlace Meet Activo</a>` : '<span class="no-link">Sin enlace</span>'}
+                ${meetLink ? `<a href="${escapeAttr(meetLink)}" target="_blank" rel="noopener" class="tag-link">🔗 Enlace Meet Activo</a>` : '<span class="no-link">Sin enlace</span>'}
               </div>
             </div>
             <div class="taller-actions">
               <button class="btn-sm" onclick="openAddParticipants(${t.id}, '${escapeAttr(t.titulo)}')">👥 Asistentes</button>
-              <button class="btn-sm btn-secondary" onclick="openAddLink(${t.id})">🔗 Link</button>
+              <button class="btn-sm btn-secondary" onclick="openAddLink(${t.id}, '${escapeAttr(t.link || "")}')">🔗 Link</button>
+              <button class="btn-sm btn-secondary" onclick="openEditBibliografia(${t.id}, '${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}')">📚 Bibliografía</button>
             </div>
           </li>
         `;
@@ -752,26 +953,6 @@ function loadAdminTalleresList() {
     .catch(err => {
       console.error(err);
       if (container) container.innerHTML = "<p style='color:red;'>Error al cargar talleres.</p>";
-    });
-}
-
-function loadDocentesForSelection(containerId) {
-  const container = document.getElementById(containerId);
-  if (container) container.innerHTML = "<p>Cargando lista...</p>";
-
-  if (allDocentesCache.length > 0) {
-    renderChecklist(allDocentesCache, containerId);
-    return;
-  }
-
-  apiPost({ action: "getAllDocentesSimple" })
-    .then(json => {
-      allDocentesCache = json.data || [];
-      renderChecklist(allDocentesCache, containerId);
-    })
-    .catch(err => {
-      console.error(err);
-      if (container) container.innerHTML = "<p style='color:red;'>Error al cargar docentes.</p>";
     });
 }
 
@@ -826,11 +1007,37 @@ function openAddParticipants(id, titulo) {
     });
 }
 
-function openAddLink(id) {
-  selectedTallerIdForLink = id;
+function openAddLink(tallerId, rawLink = "") {
+  selectedTallerIdForLink = tallerId;
+
+  const parsed = parseTallerLinkField(rawLink || "");
+  selectedTallerBibIdsForLink = parsed.bibIds || [];
+
+  const input = document.getElementById("meet-link-input");
+  if (input) input.value = parsed.meetLink || "";
+
   document.getElementById("modal-admin-list-talleres").classList.add("hidden");
   document.getElementById("modal-add-link").classList.remove("hidden");
-  document.getElementById("meet-link-input").value = "";
+}
+
+
+function openEditBibliografia(tallerId, titulo, rawLink = "") {
+  selectedTallerIdForBiblio = tallerId;
+
+  const subtitle = document.getElementById("biblio-taller-subtitle");
+  if (subtitle) subtitle.innerText = `Taller: ${titulo}`;
+
+  hideMessage(document.getElementById("biblio-msg"));
+
+  const parsed = parseTallerLinkField(rawLink || "");
+  const sel = document.getElementById("select-biblio-edit");
+  const search = document.getElementById("search-biblio-edit");
+  if (search) search.value = "";
+  renderBibliografiaSelect(sel, parsed.bibIds || []);
+  filterSelectOptions(sel, "");
+
+  document.getElementById("modal-admin-list-talleres").classList.add("hidden");
+  document.getElementById("modal-bibliografia-taller").classList.remove("hidden");
 }
 
 function filterChecklist(text, containerId) {
@@ -895,11 +1102,13 @@ function loadMyTalleres(userId) {
       }
       let html = "";
       json.data.forEach(t => {
+        const parsed = parseTallerLinkField(t.link || "");
+        const bibCount = (parsed.bibIds || []).length;
         html += `
           <div class="card card-taller" onclick="showTallerInfo('${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}')">
             <h3>${escapeHtml(t.titulo)}</h3>
             <p>📅 ${escapeHtml(t.fechaTaller)}</p>
-            ${t.link ? '<span class="badge-link">Enlace Disponible</span>' : ''}
+            ${bibCount ? `<p style="margin-top:6px; color:#555;">📚 Bibliografía: <strong>${bibCount}</strong></p>` : ``}
           </div>
         `;
       });
@@ -911,15 +1120,21 @@ function loadMyTalleres(userId) {
     });
 }
 
-function showTallerInfo(titulo, link) {
+function showTallerInfo(titulo, rawLink) {
   document.getElementById("modal-taller-info").classList.remove("hidden");
   document.getElementById("info-taller-titulo").innerText = titulo;
+
+  const parsed = parseTallerLinkField(rawLink || "");
   const actionContainer = document.getElementById("taller-action-container");
-  if (link) {
-    actionContainer.innerHTML = `<a href="${link}" target="_blank" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
+  const biblioContainer = document.getElementById("taller-biblio-container");
+
+  if (parsed.meetLink) {
+    actionContainer.innerHTML = `<a href="${escapeAttr(parsed.meetLink)}" target="_blank" rel="noopener" style="display:block; width:100%; padding:12px; border-radius:10px; background:#24496e; color:white; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
   } else {
     actionContainer.innerHTML = `<p style="color:#777; font-style:italic;">El enlace de la reunión aún no está disponible.</p>`;
   }
+
+  renderBibliografiaForDocente(biblioContainer, parsed.bibIds || []);
 }
 
 function renderDocsList(docs) {
