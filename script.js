@@ -79,10 +79,15 @@ function setupEventListeners() {
     document.getElementById("modal-view-docs").classList.remove("hidden");
     document.getElementById("filter-search").value = "";
     document.getElementById("filter-cat").value = "todos";
-    const newDocs = globalDocs.filter(doc => doc.isNew);
-    if (newDocs.length > 0) renderDocsList(newDocs);
-    else document.getElementById("docs-list-container").innerHTML =
-      `<div class="empty-state-msg"><p>No hay material nuevo.</p><small>Explora las categorías.</small></div>`;
+
+    if (!globalDocs || globalDocs.length === 0) {
+      document.getElementById("docs-list-container").innerHTML =
+        `<div class="empty-state-msg"><p>No hay documentación cargada.</p><small>Volvé más tarde.</small></div>`;
+      return;
+    }
+
+    // Mostrar todo, pero con "Mis Favoritos" arriba
+    renderDocsList(globalDocs);
   });
 
   // DOCENTE/ESTUDIANTE: Apps
@@ -896,7 +901,7 @@ function loadMyTalleres(userId) {
       let html = "";
       json.data.forEach(t => {
         html += `
-          <div class="card card-taller" onclick="showTallerInfo('${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}')">
+          <div class="card card-taller" onclick="showTallerInfo('${escapeAttr(t.titulo)}', '${escapeAttr(t.link || "")}','${escapeAttr(t.id)}')">
             <h3>${escapeHtml(t.titulo)}</h3>
             <p>📅 ${escapeHtml(t.fechaTaller)}</p>
             ${t.link ? '<span class="badge-link">Enlace Disponible</span>' : ''}
@@ -911,14 +916,64 @@ function loadMyTalleres(userId) {
     });
 }
 
-function showTallerInfo(titulo, link) {
+function showTallerInfo(titulo, link, tallerId = "") {
   document.getElementById("modal-taller-info").classList.remove("hidden");
   document.getElementById("info-taller-titulo").innerText = titulo;
+
   const actionContainer = document.getElementById("taller-action-container");
+  const materialContainer = document.getElementById("taller-material-container");
+
   if (link) {
     actionContainer.innerHTML = `<a href="${link}" target="_blank" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Unirse a la Reunión</a>`;
   } else {
     actionContainer.innerHTML = `<p style="color:#777; font-style:italic;">El enlace de la reunión aún no está disponible.</p>`;
+  }
+
+  // Material del taller (requiere que el backend envíe docsIds; si no, mostramos estado)
+  if (materialContainer) {
+    materialContainer.innerHTML = `<p class="material-empty">📎 Material: no disponible.</p>`;
+
+    // Intento: si en algún momento el backend agrega docsIds, lo tomamos desde getAllTalleres
+    if (tallerId) {
+      apiPost({ action: "getAllTalleres" })
+        .then(json => {
+          const t = (json.data || []).find(x => String(x.id) === String(tallerId));
+          const docsIds = (t && (t.docsIds || t.docs_ids || t.docs || t.material || t.materialIds)) || [];
+          const ids = Array.isArray(docsIds)
+            ? docsIds.map(String)
+            : String(docsIds || "").split(",").map(s => s.trim()).filter(Boolean);
+
+          if (!ids || ids.length === 0) return;
+
+          // Asegurar que tenemos la documentación cargada
+          const ensureDocs = globalDocs && globalDocs.length > 0
+            ? Promise.resolve({ result: "success", data: globalDocs })
+            : apiPost({ action: "getDocuments" }).then(r => {
+                globalDocs = r.data || [];
+                return r;
+              });
+
+          ensureDocs.then(() => {
+            const mapById = new Map((globalDocs || []).map(d => [String(d.id), d]));
+            const docs = ids.map(id => mapById.get(String(id))).filter(Boolean);
+
+            if (docs.length === 0) return;
+
+            materialContainer.innerHTML = `
+              <div class="material-header">📎 Material</div>
+              <ul class="material-list">
+                ${docs.map(d => `
+                  <li class="material-item">
+                    <a href="${d.url}" target="_blank" rel="noopener">${escapeHtml(d.titulo || "Documento")}</a>
+                    <span class="badge">${escapeHtml(d.categoria || "")}</span>
+                  </li>
+                `).join("")}
+              </ul>
+            `;
+          });
+        })
+        .catch(() => {});
+    }
   }
 }
 
@@ -929,6 +984,44 @@ function renderDocsList(docs) {
   if (!docs || docs.length === 0) {
     container.innerHTML = "<p>No se encontraron documentos.</p>";
     return;
+  }
+
+  // Favoritos primero (dentro del set filtrado)
+  const favSet = new Set((userFavorites || []).map(String));
+  const favDocs = docs.filter(d => favSet.has(String(d.id)));
+  const otherDocs = docs.filter(d => !favSet.has(String(d.id)));
+
+  let html = "";
+
+  if (favDocs.length > 0) {
+    html += `
+      <div class="docs-section">
+        <div class="docs-section-header">
+          <h3 class="docs-section-title">⭐ Mis Favoritos</h3>
+          <span class="docs-section-count">${favDocs.length}</span>
+        </div>
+        ${buildDocsUl(favDocs)}
+      </div>
+      <hr class="docs-divider">
+    `;
+  }
+
+  html += `
+    <div class="docs-section">
+      <div class="docs-section-header">
+        <h3 class="docs-section-title">📚 Todos los documentos</h3>
+        <span class="docs-section-count">${otherDocs.length}</span>
+      </div>
+      ${buildDocsUl(otherDocs)}
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+function buildDocsUl(docs) {
+  if (!docs || docs.length === 0) {
+    return `<div class="empty-state-msg"><p>No hay documentos para mostrar.</p></div>`;
   }
 
   let html = "<ul>";
@@ -954,7 +1047,7 @@ function renderDocsList(docs) {
     `;
   });
   html += "</ul>";
-  container.innerHTML = html;
+  return html;
 }
 
 function toggleDocFavorite(docId, btn) {
